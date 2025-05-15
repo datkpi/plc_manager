@@ -3,6 +3,7 @@
     <div class="login-box">
         <div class="login-logo">
             <a href="{{route('auth.get_login')}}"><b>Đăng nhập</b> hệ thống</a>
+            
         </div>
         <!-- /.login-logo -->
         <div class="card">
