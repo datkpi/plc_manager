@@ -63,11 +63,27 @@ class ProductionReportController extends Controller
                     'date' => $entry->date,
                     'entries' => collect([]),
                     'daily_totals' => [
-                        'output_quantity' => 0,
-                        'good_quantity' => 0,
-                        'defect_weight' => 0,
-                        'waste_weight' => 0,
-                        'total_weight' => 0
+                        'CA1' => [
+                            'output_quantity' => 0,
+                            'good_quantity' => 0,
+                            'defect_weight' => 0,
+                            'waste_weight' => 0,
+                            'total_weight' => 0
+                        ],
+                        'CA2' => [
+                            'output_quantity' => 0,
+                            'good_quantity' => 0,
+                            'defect_weight' => 0,
+                            'waste_weight' => 0,
+                            'total_weight' => 0
+                        ],
+                        'CA3' => [
+                            'output_quantity' => 0,
+                            'good_quantity' => 0,
+                            'defect_weight' => 0,
+                            'waste_weight' => 0,
+                            'total_weight' => 0
+                        ]
                     ]
                 ];
             }
@@ -76,30 +92,29 @@ class ProductionReportController extends Controller
             $productWeight = 0;
             if ($entry->product && $entry->product->gm_spec > 0 && $entry->product_length > 0) {
                 $gramPerMeter = $entry->product->gm_spec;
-                $productWeight = ($gramPerMeter * $entry->product_length * $entry->good_quantity) / 1000;
+                $productWeight = ($gramPerMeter * $entry->product_length * $entry->output_quantity) / 1000;
             }
             
             // Thêm thông tin khối lượng vào entry
             $entry->product_weight = $productWeight;
-            $totalWeight = $productWeight + $entry->defect_weight + $entry->waste_weight;
-            $entry->total_weight = $totalWeight;
+            $entry->total_weight = $productWeight;
             
             // Thêm entry vào ngày tương ứng
             $reportData[$dateKey]['entries']->push($entry);
             
-            // Cập nhật tổng theo ngày
-            $reportData[$dateKey]['daily_totals']['output_quantity'] += $entry->output_quantity;
-            $reportData[$dateKey]['daily_totals']['good_quantity'] += $entry->good_quantity;
-            $reportData[$dateKey]['daily_totals']['defect_weight'] += $entry->defect_weight;
-            $reportData[$dateKey]['daily_totals']['waste_weight'] += $entry->waste_weight;
-            $reportData[$dateKey]['daily_totals']['total_weight'] += $totalWeight;
+            // Cập nhật tổng theo ca
+            $reportData[$dateKey]['daily_totals'][$entry->shift]['output_quantity'] += $entry->output_quantity;
+            $reportData[$dateKey]['daily_totals'][$entry->shift]['good_quantity'] += $entry->good_quantity;
+            $reportData[$dateKey]['daily_totals'][$entry->shift]['defect_weight'] += $entry->defect_weight;
+            $reportData[$dateKey]['daily_totals'][$entry->shift]['waste_weight'] += $entry->waste_weight;
+            $reportData[$dateKey]['daily_totals'][$entry->shift]['total_weight'] = $productWeight;
             
             // Cập nhật tổng toàn bộ
             $totals['output_quantity'] += $entry->output_quantity;
             $totals['good_quantity'] += $entry->good_quantity;
             $totals['defect_weight'] += $entry->defect_weight;
             $totals['waste_weight'] += $entry->waste_weight;
-            $totals['total_weight'] += $totalWeight;
+            $totals['total_weight'] += $productWeight;
         }
         
         // Lấy thông tin tháng/năm cho tiêu đề báo cáo
@@ -209,7 +224,7 @@ class ProductionReportController extends Controller
             // Tính khối lượng sản phẩm
             $productWeight = 0;
             if ($entry->product && $entry->product->gm_spec > 0 && $entry->product_length > 0) {
-                $productWeight = ($entry->product->gm_spec * $entry->product_length * $entry->good_quantity) / 1000;
+                $productWeight = ($entry->product->gm_spec * $entry->product_length * $entry->output_quantity) / 1000;
             }
             
             // Khối lượng theo ca

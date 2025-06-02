@@ -5,7 +5,11 @@
             <th width="120">Zone nhiệt</th>
             @foreach(['CL', 'XL1', 'XL2', 'XL3', 'XL4', 'XL5', 'CN', 'XLMC1', 'XLMC2'] as $zone)
                 <td class="text-center">
-                    <div class="zone-button {{ $data->{"bat_" . strtolower(str_replace('MC', '_may_chi_', $zone))} ? 'active' : '' }}">
+                    @php 
+                        $key = "bat_" . strtolower(str_replace('MC', '_may_chi_', $zone));
+                        $isActive = $data->$key ? true : false;
+                    @endphp
+                    <div class="zone-button {{ $isActive ? 'active' : '' }}" data-state="{{ $isActive ? '1' : '0' }}" data-zone="{{ $zone }}">
                         {{ $zone }}
                     </div>
                 </td>
@@ -43,7 +47,11 @@
             <th width="120">Zone nhiệt</th>
             @foreach(['XLMC3', 'XLMC4', 'DH1', 'DH2', 'DH3', 'DH4', 'DH5', 'DH6'] as $zone)
                 <td class="text-center">
-                    <div class="zone-button {{ $data->{"bat_" . strtolower(str_replace(['MC', 'DH'], ['may_chi_', 'dh_'], $zone))} ? 'active' : '' }}">
+                    @php 
+                        $key = "bat_" . strtolower(str_replace(['MC', 'DH'], ['may_chi_', 'dh_'], $zone));
+                        $isActive = $data->$key ? true : false;
+                    @endphp
+                    <div class="zone-button {{ $isActive ? 'active' : '' }}" data-state="{{ $isActive ? '1' : '0' }}" data-zone="{{ $zone }}">
                         {{ $zone }}
                     </div>
                 </td>

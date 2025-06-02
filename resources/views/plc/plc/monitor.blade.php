@@ -89,7 +89,19 @@
                     <th width="120">Zone nhiệt</th>
                     @foreach(['CL', 'XL1', 'XL2', 'XL3', 'XL4', 'XL5', 'CN', 'XLMC1', 'XLMC2'] as $zone)
                         <td class="text-center">
-                            <div class="zone-button {{ $data->{"bat_" . strtolower(str_replace('MC', '_may_chi_', $zone))} ? '' : 'active' }}">
+                            @php
+                                $status = '';
+                                if (strpos($zone, 'XLMC') !== false) {
+                                    $status = $data->{"bat_tat_xl_may_chi_" . substr($zone, -1)};
+                                } elseif (strpos($zone, 'XL') !== false) {
+                                    $status = $data->{"bat_xl_" . substr($zone, -1)};
+                                } elseif ($zone === 'CL') {
+                                    $status = $data->bat_cl;
+                                } elseif ($zone === 'CN') {
+                                    $status = $data->bat_cn;
+                                }
+                            @endphp
+                            <div class="zone-button {{ $status == 1 ? 'active' : '' }}">
                                 {{ $zone }}
                             </div>
                         </td>
@@ -127,7 +139,15 @@
                     <th width="120">Zone nhiệt</th>
                     @foreach(['XLMC3', 'XLMC4', 'DH1', 'DH2', 'DH3', 'DH4', 'DH5', 'DH6'] as $zone)
                         <td class="text-center">
-                            <div class="zone-button {{ $data->{"bat_" . strtolower(str_replace(['MC', 'DH'], ['may_chi_', 'dh_'], $zone))} ? '' : 'active' }}">
+                            @php
+                                $status = '';
+                                if (strpos($zone, 'XLMC') !== false) {
+                                    $status = $data->{"bat_tat_xl_may_chi_" . substr($zone, -1)};
+                                } elseif (strpos($zone, 'DH') !== false) {
+                                    $status = $data->{"bat_dh_" . substr($zone, -1)};
+                                }
+                            @endphp
+                            <div class="zone-button {{ $status == 1 ? 'active' : '' }}">
                                 {{ $zone }}
                             </div>
                         </td>
@@ -465,7 +485,7 @@ $(document).ready(function() {
     let refreshInterval;
 
     function startAutoRefresh() {
-        countdown = 5;
+        countdown = 10;
         updateCountdown();
 
         countdownInterval = setInterval(function() {
@@ -473,7 +493,7 @@ $(document).ready(function() {
             updateCountdown();
             
             if (countdown <= 0) {
-                countdown = 5;
+                countdown = 10;
             }
         }, 1000);
 
@@ -486,34 +506,8 @@ $(document).ready(function() {
     }
 
     function fetchLatestData() {
-        $.ajax({
-            url: '{{ route("plc.monitor") }}',
-            type: 'GET',
-            data: {
-                mode: 'realtime',
-                ajax: 1,
-                machine_id: 1
-            },
-            success: function(response) {
-                if (response.html) {
-                    // Cập nhật nội dung trang
-                    $('#plcDataContainer').html(response.html);
-                    // Cập nhật thời gian cập nhật
-                    $('.alert-info strong').text(response.lastUpdate);
-                    
-                    // Cập nhật trực tiếp data-alerts cho các phần tử
-                    if (response.alerts) {
-                        applyAlerts(response.alerts);
-                    }
-                    
-                    // Tái khởi tạo xử lý cho các giá trị cảnh báo mới
-                    reinitAlertHandlers();
-                }
-            },
-            error: function() {
-                console.log('Lỗi khi tải dữ liệu');
-            }
-        });
+        // Reload trang thay vì sử dụng Ajax
+        location.reload();
     }
     
     // Hàm cập nhật các thuộc tính cảnh báo cho các phần tử

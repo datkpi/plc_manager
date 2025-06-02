@@ -28,13 +28,41 @@ class ExcelImportService
             
             Log::info('Đã đọc file Excel thành công. Số dòng: ' . count($rows));
 
+            // Log dữ liệu gốc để debug
+            foreach ($rows as $index => $row) {
+                Log::info("Dữ liệu gốc dòng " . ($index + 1) . ": " . json_encode($row));
+            }
+
             // Bỏ qua dòng tiêu đề và các dòng rỗng
-            $dataRows = array_filter(array_slice($rows, 1), function($row) {
-                // Kiểm tra nếu tất cả các ô đều trống
-                return !empty(array_filter($row, function($cell) {
-                    return !empty($cell);
+            $dataRows = array_filter($rows, function($row, $index) {
+                // Log để debug
+                Log::info("Đang xét dòng " . ($index + 1) . ": " . json_encode($row));
+                
+                // Bỏ qua dòng tiêu đề (index 0)
+                if ($index === 0) {
+                    Log::info("Bỏ qua dòng tiêu đề " . ($index + 1));
+                    return false;
+                }
+                
+                // Kiểm tra nếu dòng có ít nhất một ô không trống
+                $hasData = !empty(array_filter($row, function($cell) {
+                    return trim((string)$cell) !== '';
                 }));
-            });
+                
+                if (!$hasData) {
+                    Log::info("Bỏ qua dòng trống " . ($index + 1));
+                }
+                
+                return $hasData;
+            }, ARRAY_FILTER_USE_BOTH);
+            
+            // Reset array keys để đảm bảo index liên tục
+            $dataRows = array_values($dataRows);
+            
+            // Log dữ liệu sau khi lọc
+            foreach ($dataRows as $index => $row) {
+                Log::info("Dữ liệu sau lọc dòng " . ($index + 1) . ": " . json_encode($row));
+            }
             
             Log::info('Số dòng dữ liệu cần import: ' . count($dataRows));
 
@@ -48,13 +76,15 @@ class ExcelImportService
             // Không sử dụng transaction bao toàn bộ quá trình import
             // mà chỉ sử dụng transaction cho từng dòng
             // DB::beginTransaction();
+            // dd($dataRows);
 
             foreach ($dataRows as $rowIndex => $row) {
                 // Bắt đầu transaction cho dòng này
                 DB::beginTransaction();
                 
                 try {
-                    $rowNumber = $rowIndex + 2; // +2 vì bỏ qua dòng tiêu đề và index bắt đầu từ 0
+                    // Số dòng trong file Excel = index + 2 (vì bỏ qua dòng tiêu đề và index bắt đầu từ 0)
+                    $rowNumber = $rowIndex + 2;
 
                     // Map dữ liệu theo cột biểu mẫu thực tế từ file Excel được upload
                     $date = $this->parseDate($row[0]); // Cột A: Ngày

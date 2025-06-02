@@ -31,7 +31,7 @@
             <div class="card-body">
             {{-- <h5 class="card-title">Module nhân sự</h5> --}}
             <p class="card-text">Quản lý máy PLC</p>
-            <a href="{{route('plc.index')}}" class="btn btn-primary">Truy cập</a>
+            <a href="{{route('plc.dashboard')}}" class="btn btn-primary">Truy cập</a>
             </div>
         </div>
     </div>

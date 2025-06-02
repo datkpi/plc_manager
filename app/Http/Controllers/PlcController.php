@@ -56,6 +56,20 @@ class PlcController extends Controller
                 }, $alertsList);
             }
             
+            // Lấy các thông tin boolean để debug
+            $booleanData = [];
+            if ($data) {
+                foreach ($data->getAttributes() as $key => $value) {
+                    if (strpos($key, 'bat_') === 0) {
+                        $booleanData[$key] = [
+                            'raw_value' => $value,
+                            'is_true' => (bool)$value,
+                            'type' => gettype($value)
+                        ];
+                    }
+                }
+            }
+            
             // Lấy các thông tin nhiệt độ đặt để debug
             $debugData = [];
             if ($data) {
@@ -70,7 +84,8 @@ class PlcController extends Controller
                 'html' => $view,
                 'lastUpdate' => $lastUpdate,
                 'alerts' => $fixedAlerts,
-                'debug' => $debugData
+                'debug' => $debugData,
+                'booleanData' => $booleanData
             ]);
         }
         

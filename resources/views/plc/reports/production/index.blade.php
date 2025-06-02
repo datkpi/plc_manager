@@ -147,27 +147,31 @@
                         <tr class="table-secondary">
                             <td colspan="7" class="font-weight-bold text-right">Tổng ngày {{ $date->format('d/m/Y') }}</td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format(collect($dayData['entries'])->where('shift', 'CA1')->sum('output_quantity')) }}
+                                {{ number_format($dayData['daily_totals']['CA1']['output_quantity'] ?? 0) }}
                             </td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format(collect($dayData['entries'])->where('shift', 'CA2')->sum('output_quantity')) }}
+                                {{ number_format($dayData['daily_totals']['CA2']['output_quantity'] ?? 0) }}
                             </td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format(collect($dayData['entries'])->where('shift', 'CA3')->sum('output_quantity')) }}
+                                {{ number_format($dayData['daily_totals']['CA3']['output_quantity'] ?? 0) }}
                             </td>
                             <td></td>
                             <td></td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format(collect($dayData['entries'])->where('shift', 'CA1')->sum('product_weight'), 2) }}
+                                {{ number_format($dayData['daily_totals']['CA1']['total_weight'] ?? 0, 2) }}
                             </td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format(collect($dayData['entries'])->where('shift', 'CA2')->sum('product_weight'), 2) }}
+                                {{ number_format($dayData['daily_totals']['CA2']['total_weight'] ?? 0, 2) }}
                             </td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format(collect($dayData['entries'])->where('shift', 'CA3')->sum('product_weight'), 2) }}
+                                {{ number_format($dayData['daily_totals']['CA3']['total_weight'] ?? 0, 2) }}
                             </td>
                             <td class="text-right font-weight-bold">
-                                {{ number_format($dayData['daily_totals']['total_weight'], 2) }}
+                                {{ number_format(
+                                    ($dayData['daily_totals']['CA1']['total_weight'] ?? 0) +
+                                    ($dayData['daily_totals']['CA2']['total_weight'] ?? 0) +
+                                    ($dayData['daily_totals']['CA3']['total_weight'] ?? 0), 2
+                                ) }}
                             </td>
                             <td colspan="4"></td>
                         </tr>

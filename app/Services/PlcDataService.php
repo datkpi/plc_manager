@@ -58,6 +58,7 @@ class PlcDataService
 
             // Thêm machine_id vào data
             $data['machine_id'] = $machine_id;
+            // dd($data);
 
             // Log::info("Raw data from PLC:", $data);
 

@@ -34,10 +34,10 @@ class OEECalculationService
             ->orderBy('id', 'desc')
             ->get();
         
-        // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: PLC data count: " . $plcData->count() . ", Trying formats: " . implode(', ', $possibleShiftFormats));
+        \Log::info("calculateShiftOEE [$machineId, $date, $shift]: PLC data count: " . $plcData->count() . ", Trying formats: " . implode(', ', $possibleShiftFormats));
         
         if ($plcData->isEmpty()) {
-            // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: No PLC data found");
+            \Log::info("calculateShiftOEE [$machineId, $date, $shift]: No PLC data found");
             return [
                 'oee' => 0,
                 'availability' => 0,
@@ -70,7 +70,7 @@ class OEECalculationService
         if ($firstRecord && $lastRecord) {
             // Lấy giờ chạy đầu ca
             $startRunTime = $firstRecord->datalog_data_gio_chay_2 ?? 0;
-            // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Start run time: $startRunTime");
+            \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Start run time: $startRunTime");
             
             // Theo dõi các lần reset trong ca
             $resets = 0;
@@ -83,7 +83,7 @@ class OEECalculationService
                 // Nếu đã có giá trị trước đó và giá trị hiện tại nhỏ hơn giá trị trước đó
                 // tức là đã có reset
                 if ($previousRunTime !== null && $currentRunTime < $previousRunTime) {
-                    // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Detected reset in datalog_data_gio_chay_2: Previous=$previousRunTime, Current=$currentRunTime");
+                    \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Detected reset in datalog_data_gio_chay_2: Previous=$previousRunTime, Current=$currentRunTime");
                     $accumulatedRunTime += $previousRunTime; // Cộng dồn thời gian trước khi reset
                     $resets++;
                 }
@@ -92,24 +92,24 @@ class OEECalculationService
             
             // Lấy giờ chạy cuối ca
             $endRunTime = $lastRecord->datalog_data_gio_chay_2 ?? 0;
-            // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: End run time: $endRunTime");
+            \Log::info("calculateShiftOEE [$machineId, $date, $shift]: End run time: $endRunTime");
             
             // Tính tổng giờ chạy
             if ($resets > 0) {
                 // Nếu có reset, cộng dồn các lần reset và giờ chạy cuối cùng
                 $runTimeMinutes = $accumulatedRunTime + $endRunTime;
-                // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Total with resets: $accumulatedRunTime + $endRunTime = $runTimeMinutes");
+                \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Total with resets: $accumulatedRunTime + $endRunTime = $runTimeMinutes");
             } else {
                 // Nếu không có reset, lấy hiệu của giờ chạy cuối và đầu ca
                 $runTimeMinutes = $endRunTime - $startRunTime;
-                // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: No resets, time difference: $endRunTime - $startRunTime = $runTimeMinutes");
+                \Log::info("calculateShiftOEE [$machineId, $date, $shift]: No resets, time difference: $endRunTime - $startRunTime = $runTimeMinutes");
             }
             
             // Đảm bảo giờ chạy không âm
             $runTimeMinutes = max(0, $runTimeMinutes);
         }
         
-        // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Final run time minutes: $runTimeMinutes");
+        \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Final run time minutes: $runTimeMinutes");
         
         // - Thời gian ca mặc định là 8h = 480 phút
         $shiftTimeMinutes = 8 * 60;
@@ -122,7 +122,7 @@ class OEECalculationService
         // Lấy max_speed từ machine
         $targetProductivity = $machine ? $machine->max_speed : 0;
         
-        // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Target productivity (max_speed): $targetProductivity");
+        \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Target productivity (max_speed): $targetProductivity");
 
         if ($targetProductivity <= 0) {
             \Log::warning("calculateShiftOEE [$machineId, $date, $shift]: Target productivity is zero or negative");
@@ -144,12 +144,12 @@ class OEECalculationService
             // Tính năng suất trung bình của các bản ghi có tốc độ > 50
             $actualProductivity = $recordsWithProductivity > 0 ? $totalProductivity / $recordsWithProductivity : 0;
             
-            // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Average productivity: $actualProductivity kg/h from $recordsWithProductivity records with speed > 50");
+            \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Average productivity: $actualProductivity kg/h from $recordsWithProductivity records with speed > 50");
             
             // Tính Performance - bỏ giới hạn 100%
             $performance = $actualProductivity > 0 ? $actualProductivity / $targetProductivity : 0;
             
-            // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Performance: $performance");
+            \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Performance: $performance");
         }
 
         // Q: Quality (Chính phẩm / (Chính phẩm + Phế phẩm))
@@ -169,7 +169,7 @@ class OEECalculationService
                 $totalDefectWeight += $entry->defect_weight ?? 0;
             }
             
-            // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Entries data - Good: $totalGoodQuantity, Defect: $totalDefectWeight");
+            \Log::info("calculateShiftOEE [$machineId, $date, $shift]: Entries data - Good: $totalGoodQuantity, Defect: $totalDefectWeight");
             
             // Thay đổi ở đây: Tổng sản phẩm bằng chính phẩm (không cộng phế phẩm)
             $totalQuantity = $totalGoodQuantity;
@@ -187,7 +187,7 @@ class OEECalculationService
 
         // Tính OEE = A * P * Q
         $oee = $availability * $performance * $quality;
-        // \Log::info("calculateShiftOEE [$machineId, $date, $shift]: A=$availability, P=$performance, Q=$quality, OEE=$oee");
+        \Log::info("calculateShiftOEE [$machineId, $date, $shift]: A=$availability, P=$performance, Q=$quality, OEE=$oee");
 
         // Trả về kết quả
         return [
@@ -212,7 +212,7 @@ class OEECalculationService
      */
     public function calculateDailyOEE($machineId, $date)
     {
-        // \Log::info("calculateDailyOEE [$machineId, $date]: Start calculation");
+        \Log::info("calculateDailyOEE [$machineId, $date]: Start calculation");
         
         // Lấy dữ liệu của 3 ca
         $shifts = ['CA1', 'CA2', 'CA3']; // Sửa định dạng shift phù hợp với production_entries
@@ -229,14 +229,14 @@ class OEECalculationService
             ->whereDate('date', $date)
             ->get();
             
-        // \Log::info("calculateDailyOEE [$machineId, $date]: Found " . $entries->count() . " production entries");
+        \Log::info("calculateDailyOEE [$machineId, $date]: Found " . $entries->count() . " production entries");
 
         // Tính OEE cho từng ca và tổng hợp số liệu
         foreach($shifts as $shift) {
             // Lấy tất cả entries cho ca hiện tại
             $shiftEntries = $entries->where('shift', $shift);
             
-            // \Log::info("calculateDailyOEE [$machineId, $date, $shift]: " . 
+            \Log::info("calculateDailyOEE [$machineId, $date, $shift]: " . 
                     ($shiftEntries->count() > 0 ? "Found " . $shiftEntries->count() . " entries" : "No entries found"));
             
             // Lấy số ca từ $shift (ví dụ: CA1 -> 1)
@@ -252,15 +252,15 @@ class OEECalculationService
                 $totalGoodProductsKg += $shiftData['details']['good_products_kg'];
                 $totalDefectProductsKg += $shiftData['details']['defect_products_kg'];
                 
-                // \Log::info("calculateDailyOEE [$machineId, $date, $shift]: Valid shift with OEE " . $shiftData['oee']);
+                \Log::info("calculateDailyOEE [$machineId, $date, $shift]: Valid shift with OEE " . $shiftData['oee']);
             } else {
-                // \Log::info("calculateDailyOEE [$machineId, $date, $shift]: Invalid shift with OEE 0");
+                \Log::info("calculateDailyOEE [$machineId, $date, $shift]: Invalid shift with OEE 0");
             }
         }
 
         $totalProductsKg = $totalGoodProductsKg + $totalDefectProductsKg;
         
-        // \Log::info("calculateDailyOEE [$machineId, $date]: ValidShifts: $validShifts, TotalRunTime: $totalRunTimeMinutes, GoodProducts: $totalGoodProductsKg, DefectProducts: $totalDefectProductsKg");
+        \Log::info("calculateDailyOEE [$machineId, $date]: ValidShifts: $validShifts, TotalRunTime: $totalRunTimeMinutes, GoodProducts: $totalGoodProductsKg, DefectProducts: $totalDefectProductsKg");
 
         // Tính OEE ngày
         if ($validShifts > 0) {
@@ -283,7 +283,7 @@ class OEECalculationService
             $quality = $quality / 3;
             $oee = $oee / 3;
             
-            // \Log::info("calculateDailyOEE [$machineId, $date]: A=$availability, P=$performance, Q=$quality, OEE=$oee");
+            \Log::info("calculateDailyOEE [$machineId, $date]: A=$availability, P=$performance, Q=$quality, OEE=$oee");
         } else {
             $availability = 0;
             $performance = 0;

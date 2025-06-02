@@ -65,7 +65,7 @@ class MonthlyOEEService
                     
                     // Nếu là ca hiện tại và máy đang chạy, ghi log
                     if ($isCurrentShift) {
-                        // \Log::info("Ca hiện tại ($ca): Đã cộng thời gian chạy máy thực tế: " . 
+                        \Log::info("Ca hiện tại ($ca): Đã cộng thời gian chạy máy thực tế: " . 
                                    ($lastRecord->datalog_data_gio_chay_2 ?? 0) . " phút");
                     }
                 }

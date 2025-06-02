@@ -184,19 +184,28 @@ class DashboardController extends Controller
         $toDate = $request->input('to_date', Carbon::today()->format('Y-m-d'));
 
         // Ghi log cho debugging
-        // // \Log::info("getOEEData request: machine=$machineId, from=$fromDate, to=$toDate");
+        // \Log::info("getOEEData request: machine=$machineId, from=$fromDate, to=$toDate");
 
         // Lấy dữ liệu OEE realtime
         $realtimeOEE = $this->realtimeOEEService->getRealtimeOEE($machineId);
         
         // Log thông tin realtime OEE
-        // // \Log::info("Realtime OEE values:", [
+        // \Log::info("Realtime OEE values:", [
         //     'availability' => $realtimeOEE['availability'] ?? 0,
         //     'performance' => $realtimeOEE['performance'] ?? 0,
         //     'quality' => $realtimeOEE['quality'] ?? 0,
         //     'oee' => $realtimeOEE['oee'] ?? 0,
         //     'current_shift' => $realtimeOEE['current_shift'] ?? 'Unknown'
         // ]);
+
+        // Tính lại giá trị OEE bằng cách nhân 3 giá trị
+        $availabilityPercent = ($realtimeOEE['availability'] ?? 0) * 100;
+        $performancePercent = ($realtimeOEE['performance'] ?? 0) * 100;
+        $qualityPercent = ($realtimeOEE['quality'] ?? 0) * 100;
+        
+        // Tính OEE = (A * P * Q) / 10000
+        $oeePercent = ($availabilityPercent * $performancePercent * $qualityPercent) / 10000;
+        $realtimeOEE['oee'] = $oeePercent;
 
         // Lấy dữ liệu PLC mới nhất để hiển thị sản phẩm hiện tại
         $latestPlcData = \App\Models\PlcData::where('machine_id', $machineId)
@@ -208,17 +217,17 @@ class DashboardController extends Controller
         $currentProduct = $latestPlcData ? $latestPlcData->datalog_data_ma_sp : null;
         $currentProductivity = $latestPlcData ? $latestPlcData->nang_suatkg_h : 0;
         
-        // // \Log::info("Latest PLC data found: " . ($latestPlcData ? 'Yes' : 'No') . 
+        // \Log::info("Latest PLC data found: " . ($latestPlcData ? 'Yes' : 'No') . 
         //           ", Product: " . ($currentProduct ?? 'N/A') . 
         //           ", Productivity: " . $currentProductivity);
 
-        // // Lấy kế hoạch sản xuất từ KHSXM (tổng số mét cần sản xuất)
-        // $planQuantity = $latestPlcData->khsxm ?? 0;
-        // // \Log::info("Kế hoạch sản xuất (mét): " . $planQuantity);
+        // Lấy kế hoạch sản xuất từ KHSXM (tổng số mét cần sản xuất)
+        $planQuantity = $latestPlcData->khsxm ?? 0;
+        // \Log::info("Kế hoạch sản xuất (mét): " . $planQuantity);
 
-        // // Lấy sản lượng thực tế từ realtime OEE
-        // $actualQuantity = $realtimeOEE['actual_quantity'] ?? 0;
-        // // \Log::info("Sản lượng thực tế từ realtime: " . $actualQuantity);
+        // Lấy sản lượng thực tế từ realtime OEE
+        $actualQuantity = $realtimeOEE['actual_quantity'] ?? 0;
+        // \Log::info("Sản lượng thực tế từ realtime: " . $actualQuantity);
 
         // Cache key cho dữ liệu lịch sử
         $cacheKey = "machine_oee_history_{$machineId}_{$fromDate}_{$toDate}";
@@ -233,7 +242,7 @@ class DashboardController extends Controller
             $currentDate = Carbon::parse($fromDate);
             $endDate = Carbon::parse($toDate);
 
-            // // \Log::info("Calculating OEE history from {$fromDate} to {$toDate}");
+            // \Log::info("Calculating OEE history from {$fromDate} to {$toDate}");
 
             while ($currentDate <= $endDate) {
                 $dailyOEE = $this->oeeService->calculateDailyOEE($machineId, $currentDate->format('Y-m-d'));
@@ -270,7 +279,7 @@ class DashboardController extends Controller
             ],
             'oee_trend' => $historyData['oee_history'],
             'current_oee' => [
-                'oee' => round(($realtimeOEE['oee'] ?? 0) * 100, 2),
+                'oee' => round($realtimeOEE['oee'], 2),
                 'availability' => round(($realtimeOEE['availability'] ?? 0) * 100, 2),
                 'performance' => round(($realtimeOEE['performance'] ?? 0) * 100, 2),
                 'quality' => round(($realtimeOEE['quality'] ?? 0) * 100, 2),
@@ -282,9 +291,26 @@ class DashboardController extends Controller
                 'shift_start_time' => isset($realtimeOEE['shift_start_time']) ? $realtimeOEE['shift_start_time']->format('H:i') : '',
                 'current_time' => isset($realtimeOEE['current_time']) ? $realtimeOEE['current_time']->format('H:i') : date('H:i'),
                 'estimated_completion_time' => isset($realtimeOEE['estimated_completion_time']) 
-                    ? $realtimeOEE['estimated_completion_time']->format('H:i') 
-                    : null
+                    ? 'còn ' . sprintf('%02d:%02d', floor($realtimeOEE['estimated_completion_time'] / 60), $realtimeOEE['estimated_completion_time'] % 60)
+                    : 'còn 00:00'
             ]
         ];
+    }
+
+    public function calculateAvailability($machineId, $shift) {
+        // 1. Lấy dữ liệu PLC của ca hiện tại
+        $plcData = PlcData::where('machine_id', $machineId)
+            ->where('datalog_data_ca', $shift)
+            ->orderBy('id', 'desc')  // Sắp xếp giảm dần để lấy bản ghi mới nhất
+            ->first();
+
+        // 2. Lấy giờ chạy 2 từ bản ghi cuối cùng của ca
+        $runTimeMinutes = $plcData ? $plcData->datalog_data_gio_chay_2 : 0;
+
+        // 3. Tính Availability = Thời gian chạy / (8 giờ * 60 phút)
+        $availability = $runTimeMinutes / (8 * 60);
+
+        // 4. Giới hạn tối đa là 1 (100%)
+        return min(1, $availability);
     }
 }
