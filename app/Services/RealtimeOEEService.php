@@ -30,7 +30,7 @@ class RealtimeOEEService
             return [
                 'oee' => 0,
                 'availability' => 0,
-                'performance' => 0,
+                'performance' => 0, 
                 'quality' => 0,
                 'current_shift' => $currentShift,
                 'shift_start_time' => $shiftStartTime,
@@ -86,20 +86,31 @@ class RealtimeOEEService
         \Log::info("PLC data for machine $machineId: nang_suatkg_h=$nangSuatKgH, current_speed=$currentSpeed");
             
         // Lấy dữ liệu sản xuất của ca hiện tại
-        $currentEntry = ProductionEntry::where('machine_id', $machineId)
+        $currentEntries = ProductionEntry::where('machine_id', $machineId)
             ->whereDate('date', $now->format('Y-m-d'))
             ->where('shift', $currentShift)
-            ->first();
+            ->get();
 
-        if (!$currentEntry) {
-            \Log::info("No production entry found for machine $machineId in shift $currentShift");
+        if ($currentEntries->isEmpty()) {
+            \Log::info("No production entries found for machine $machineId in shift $currentShift");
         }
-        
+
+        // Tổng hợp số liệu từ tất cả các bản ghi
+        $totalOutputQuantity = 0;
+        $totalGoodQuantity = 0;
+        foreach ($currentEntries as $entry) {
+            $totalOutputQuantity += $entry->output_quantity;
+            $totalGoodQuantity += $entry->good_quantity;
+        }
+
         // Gán mức năng suất từ plc_data vào entry nếu có entry nhưng chưa có năng suất
-        if ($currentEntry && (!isset($currentEntry->nang_suatkg_h) || $currentEntry->nang_suatkg_h == 0) && $nangSuatKgH > 0) {
-            // $currentEntry->nang_suatkg_h = $nangSuatKgH;
-            $currentEntry->save(); // Lưu lại để lần sau không cần tính lại
-            \Log::info("Saved nang_suatkg_h=$nangSuatKgH to production entry");
+        if ($currentEntries && (!isset($currentEntries[0]->nang_suatkg_h) || $currentEntries[0]->nang_suatkg_h == 0) && $nangSuatKgH > 0) {
+            // $currentEntries[0]->nang_suatkg_h = $nangSuatKgH;
+            foreach ($currentEntries as $entry) {
+                $entry->nang_suatkg_h = $nangSuatKgH;
+                $entry->save(); // Lưu lại để lần sau không cần tính lại
+                \Log::info("Saved nang_suatkg_h=$nangSuatKgH to production entry");
+            }
         }
 
         // Lấy mã sản phẩm hiện tại từ PLC
@@ -184,7 +195,7 @@ class RealtimeOEEService
         $performance = $this->calculatePerformance($machineId, $currentShift);
 
         // Tính Quality
-        $quality = $this->calculateQuality($currentEntry);
+        $quality = $this->calculateQuality($currentEntries);
 
         // Tính OEE = A * P * Q
         // Chuyển đổi các giá trị về phần trăm trước khi nhân
@@ -196,7 +207,7 @@ class RealtimeOEEService
         \Log::info("OEE calculation for machine $machineId: A=$availabilityPercent%, P=$performancePercent%, Q=$qualityPercent%, OEE=$oee%");
 
         // Tính thời gian dự kiến hoàn thành
-        $estimatedCompletionTime = $this->calculateEstimatedCompletionTime($planQuantity, $actualQuantity, $nangSuatKgH, $now);
+        $estimatedCompletionTime = $this->calculateEstimatedCompletionTime($planQuantity, $actualQuantity, $currentProductivity, $now, $machineId);
 
         // Xác định ca hiện tại và ngày hiện tại
         $now = Carbon::now();
@@ -242,8 +253,8 @@ class RealtimeOEEService
             'current_time' => $now,
             'running_time' => $runningTime,
             'current_speed' => $currentSpeed,
-            'output_quantity' => $currentEntry->output_quantity ?? 0,
-            'good_quantity' => $currentEntry->good_quantity ?? 0,
+            'output_quantity' => $totalOutputQuantity,
+            'good_quantity' => $totalGoodQuantity,
             'nang_suatkg_h' => $nangSuatKgH,
             'plan_quantity' => $planQuantity,
             'actual_quantity' => $actualQuantity,
@@ -344,13 +355,30 @@ class RealtimeOEEService
     }
 
     /**
-     * Tính Quality
+     * Tính Quality dựa trên tổng hợp của tất cả các bản ghi trong ca
      */
-    protected function calculateQuality($currentEntry)
+    protected function calculateQuality($currentEntries)
     {
-        // Luôn trả về 0.01 (1%)
-        \Log::info("Quality is set to fixed value: 1%");
-        return 0.01;
+        if (!$currentEntries || $currentEntries->isEmpty()) {
+            \Log::info("No production entries for quality calculation");
+            return 0.01; // Giá trị mặc định
+        }
+
+        $totalGoodKg = 0;
+        $totalDefectKg = 0;
+
+        foreach ($currentEntries as $entry) {
+            $product = $entry->product;
+            if ($product && $product->gm_spec > 0 && $entry->product_length > 0) {
+                $totalGoodKg += ($product->gm_spec * $entry->product_length * $entry->good_quantity) / 1000;
+            }
+            $totalDefectKg += $entry->defect_weight;
+        }
+
+        $quality = ($totalGoodKg + $totalDefectKg) > 0 ? $totalGoodKg / ($totalGoodKg + $totalDefectKg) : 0.01;
+        \Log::info("Quality calculation: good_kg=$totalGoodKg, defect_kg=$totalDefectKg, quality=$quality");
+        
+        return $quality;
     }
 
     /**
@@ -390,23 +418,24 @@ class RealtimeOEEService
     }
 
     /**
-     * Tính thời gian dự kiến hoàn thành dựa trên kế hoạch sản xuất, sản lượng thực tế và tốc độ hiện tại
+     * Tính thời gian dự kiến hoàn thành dựa trên kế hoạch sản xuất và tốc độ thực tế dàn kéo
      * 
      * @param float $planQuantity Kế hoạch sản xuất (mét)
      * @param float $actualQuantity Sản lượng thực tế đã sản xuất (mét)
-     * @param float $currentProductivity Năng suất hiện tại (kg/h)
+     * @param float $currentProductivity Năng suất hiện tại (kg/h) - không sử dụng
      * @param Carbon $currentTime Thời điểm hiện tại
+     * @param int $machineId ID của máy
      * @return int Thời gian còn lại (phút)
      */
-    protected function calculateEstimatedCompletionTime($planQuantity, $actualQuantity, $currentProductivity, $currentTime)
+    protected function calculateEstimatedCompletionTime($planQuantity, $actualQuantity, $currentProductivity, $currentTime, $machineId)
     {
-        // Kiểm tra các điều kiện cần thiết
-        if ($planQuantity <= 0 || $currentProductivity <= 0) {
-            \Log::info("Không thể tính thời gian còn lại: Kế hoạch sản xuất hoặc năng suất hiện tại không hợp lệ");
+        // Kiểm tra kế hoạch sản xuất
+        if ($planQuantity <= 0) {
+            \Log::info("Không thể tính thời gian còn lại: Kế hoạch sản xuất không hợp lệ");
             return 0;
         }
 
-        // Tính số lượng còn lại cần sản xuất
+        // Tính số lượng còn lại cần sản xuất (mét)
         $remainingQuantity = $planQuantity - $actualQuantity;
         
         // Nếu đã hoàn thành kế hoạch
@@ -415,15 +444,36 @@ class RealtimeOEEService
             return 0;
         }
 
-        // Tính thời gian còn lại (giờ) dựa trên năng suất hiện tại
-        // Giả sử năng suất hiện tại (kg/h) tương đương với tốc độ sản xuất (m/h)
-        $remainingHours = $remainingQuantity / $currentProductivity;
-        
-        // Chuyển đổi giờ thành phút và làm tròn
-        $remainingMinutes = round($remainingHours * 60);
+        // Lấy tốc độ thực tế dàn kéo trung bình (m/p) - MD116
+        $avgSpeed = PlcData::where('machine_id', $machineId)
+            ->whereDate('created_at', $currentTime->format('Y-m-d'))
+            ->where('toc_do_thuc_te_vx', '>', 50)
+            ->orderBy('id', 'desc')
+            ->limit(10) // Lấy 10 bản ghi gần nhất để tính trung bình
+            ->avg('toc_do_thuc_te_dan_keo_m_p') ?? 0;
+
+        // Nếu không có tốc độ hợp lệ, lấy bản ghi mới nhất
+        if ($avgSpeed <= 0) {
+            $latestSpeed = PlcData::where('machine_id', $machineId)
+                ->whereDate('created_at', $currentTime->format('Y-m-d'))
+                ->orderBy('id', 'desc')
+                ->value('toc_do_thuc_te_dan_keo_m_p') ?? 0;
+                
+            if ($latestSpeed > 0) {
+                $avgSpeed = $latestSpeed;
+            } else {
+                \Log::info("Không thể tính thời gian còn lại: Không có tốc độ thực tế dàn kéo hợp lệ");
+                return 0;
+            }
+        }
+
+        // Tính thời gian còn lại (phút)
+        // Số mét còn lại / (tốc độ thực tế mét/phút)
+        $remainingMinutes = round($remainingQuantity / $avgSpeed);
         
         \Log::info("Thời gian còn lại: " . $remainingMinutes . " phút" . 
-                  " (còn " . round($remainingQuantity, 2) . " mét)");
+                  " (còn " . round($remainingQuantity, 2) . " mét" .
+                  ", tốc độ thực tế TB: " . round($avgSpeed, 3) . " m/p)");
         
         return $remainingMinutes;
     }

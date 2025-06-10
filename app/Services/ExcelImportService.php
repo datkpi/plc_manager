@@ -183,14 +183,14 @@ class ExcelImportService
                             'date' => $date,
                             'shift' => $shift,
                             'machine_id' => $machine->id,
-                            'product_code' => $productCode
+                            'product_code' => $productCode,
+                            'product_length' => $productLength
                         ],
                         [
                             'output_quantity' => $runQuantity,
                             'good_quantity' => $goodQuantity,
                             'defect_weight' => $defectWeight,
                             'waste_weight' => $wasteWeight,
-                            'product_length' => $productLength,
                             'notes' => $notes,
                             'operator_name' => $operatorName,
                             'operator_team' => $operatorTeam,
@@ -297,7 +297,7 @@ class ExcelImportService
                 $parts = preg_split('/[\/\-\.]/', $dateString);
                 if (count($parts) === 3) {
                     // Giả định định dạng ngày/tháng/năm
-                    $day = (int)$parts[0];
+                    $day = (int)$parts[0];  
                     $month = (int)$parts[1];
                     $year = (int)$parts[2];
                     

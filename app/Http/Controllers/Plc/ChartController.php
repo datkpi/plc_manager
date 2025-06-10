@@ -87,8 +87,8 @@ class ChartController extends Controller
                 ->get();
 
             // Ghi log số lượng dữ liệu
-            // // \Log::info("Số lượng dữ liệu cho máy $machineId: " . $data->count() . ", Realtime: " . ($isRealtime ? 'Yes' : 'No'));
-            // // \Log::info("Các trường được chọn: " . implode(', ', $selectFields));
+            // \Log::info("Số lượng dữ liệu cho máy $machineId: " . $data->count() . ", Realtime: " . ($isRealtime ? 'Yes' : 'No'));
+            // \Log::info("Các trường được chọn: " . implode(', ', $selectFields));
 
             // Lấy cảnh báo theo khoảng thời gian tương ứng
             $alertsQuery = PlcAlert::where('machine_id', $machineId)
@@ -107,7 +107,7 @@ class ChartController extends Controller
             $alerts = $alertsQuery->get()->groupBy('plc_data_id');
 
             // Ghi log số lượng cảnh báo
-            // // \Log::info("Số lượng nhóm cảnh báo cho máy $machineId: " . $alerts->count());
+            // \Log::info("Số lượng nhóm cảnh báo cho máy $machineId: " . $alerts->count());
 
             // Map dữ liệu với cảnh báo
             $mappedData = $data->map(function($item) use ($alerts) {

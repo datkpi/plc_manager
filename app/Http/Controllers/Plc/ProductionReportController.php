@@ -107,7 +107,7 @@ class ProductionReportController extends Controller
             $reportData[$dateKey]['daily_totals'][$entry->shift]['good_quantity'] += $entry->good_quantity;
             $reportData[$dateKey]['daily_totals'][$entry->shift]['defect_weight'] += $entry->defect_weight;
             $reportData[$dateKey]['daily_totals'][$entry->shift]['waste_weight'] += $entry->waste_weight;
-            $reportData[$dateKey]['daily_totals'][$entry->shift]['total_weight'] = $productWeight;
+            $reportData[$dateKey]['daily_totals'][$entry->shift]['total_weight'] += $productWeight;
             
             // Cập nhật tổng toàn bộ
             $totals['output_quantity'] += $entry->output_quantity;

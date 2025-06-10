@@ -5,6 +5,12 @@
             <a href="{{route('auth.get_login')}}"><b>Đăng nhập</b> hệ thống</a>
             
         </div>
+
+        {{-- <div class="col-md-6">
+            <label for="" class="form-label">footerScript:</label>
+            <textarea name="footerScript" rows="3" class="form-control"
+              placeholder="Chèn thêm code vào footer">{{ settings.footerScript }}</textarea>
+            </div> --}}
         <!-- /.login-logo -->
         <div class="card">
             <div class="card-body login-card-body">

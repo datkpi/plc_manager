@@ -65,7 +65,7 @@ class OEEReportController extends Controller
      */
     public function daily(Request $request)
     {
-        // // \Log::info("OEE Daily Report: " . json_encode($request->all()));
+        // \Log::info("OEE Daily Report: " . json_encode($request->all()));
         
         $machines = Machine::where('status', true)->get();
         $fromDate = $request->input('from_date', now()->subDays(7)->toDateString());
@@ -79,7 +79,7 @@ class OEEReportController extends Controller
     
         if ($machineId) {
             $selectedMachine = Machine::findOrFail($machineId);
-            // // \Log::info("OEE Daily Report - Selected machine: " . $selectedMachine->name);
+            // \Log::info("OEE Daily Report - Selected machine: " . $selectedMachine->name);
             
             // Lấy thông tin về production_entries cho machine này
             $entries = ProductionEntry::where('machine_id', $machineId)
@@ -87,7 +87,7 @@ class OEEReportController extends Controller
                 ->whereDate('date', '<=', $toDate)
                 ->get();
             
-            // // \Log::info("OEE Daily Report - Found " . $entries->count() . " production entries");
+            // \Log::info("OEE Daily Report - Found " . $entries->count() . " production entries");
             
             // Lấy dữ liệu PLC cho machine này
             $plcData = PlcData::where('machine_id', $machineId)
@@ -95,7 +95,7 @@ class OEEReportController extends Controller
                 ->whereDate('datalog_date', '<=', $toDate)
                 ->get();
                 
-            // \Log::info("OEE Daily Report - Found " . $plcData->count() . " PLC data records");
+            \Log::info("OEE Daily Report - Found " . $plcData->count() . " PLC data records");
             
             // Hiển thị thông tin debug
             $debugInfo = [
@@ -141,7 +141,7 @@ class OEEReportController extends Controller
             // Lặp qua từng ngày trong khoảng
             for($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
                 $dateString = $date->format('Y-m-d');
-                // \Log::info("OEE Daily Report - Processing date: $dateString");
+                \Log::info("OEE Daily Report - Processing date: $dateString");
                 
                 $result = $this->oeeService->calculateDailyOEE($machineId, $dateString);
                 
@@ -154,9 +154,9 @@ class OEEReportController extends Controller
                     $totalStats['oee'] += $result['daily']['oee'];
                     $totalStats['valid_days']++;
                     
-                    // \Log::info("OEE Daily Report - Valid day: $dateString, OEE: " . $result['daily']['oee']);
+                    \Log::info("OEE Daily Report - Valid day: $dateString, OEE: " . $result['daily']['oee']);
                 } else {
-                    // \Log::info("OEE Daily Report - Invalid day: $dateString, OEE is 0");
+                    \Log::info("OEE Daily Report - Invalid day: $dateString, OEE is 0");
                 }
             }
     
