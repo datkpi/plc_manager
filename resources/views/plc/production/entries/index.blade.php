@@ -52,7 +52,7 @@
                 <tbody>
                     @forelse($entries as $entry)
                     <tr>
-                        <td>{{ $entry->date->format('d/m/Y') }}</td>
+                        <td>{{ date('d/m/Y', strtotime($entry->date)) }}</td>
                         <td>{{ $entry->shift }}</td>
                         <td>{{ $entry->machine->name }}</td>
                         <td>{{ $entry->product_code }}</td>

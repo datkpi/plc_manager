@@ -26,7 +26,7 @@ class ProductionEntry extends Model
     ];
 
     protected $casts = [
-        'date' => 'date',
+        // 'date' => 'date:Y-m-d',
         'output_quantity' => 'integer',
         'good_quantity' => 'integer',
         'defect_weight' => 'decimal:2',
@@ -65,5 +65,23 @@ class ProductionEntry extends Model
         
         $total = $goodWeight + $this->defect_weight;
         return $total > 0 ? ($this->defect_weight / $total) * 100 : 0;
+    }
+
+    // Accessor để format ngày theo định dạng d/m/Y khi hiển thị
+    public function getFormattedDateAttribute()
+    {
+        return $this->date ? $this->date->format('d/m/Y') : '';
+    }
+
+    // Accessor để lấy ngày theo định dạng Y-m-d cho form input
+    public function getDateForInputAttribute()
+    {
+        return $this->date ? $this->date->format('Y-m-d') : '';
+    }
+
+    // Mutator để xử lý ngày trước khi lưu vào database
+    public function setDateAttribute($value)
+    {
+        $this->attributes['date'] = $value ? date('Y-m-d', strtotime($value)) : null;
     }
 }

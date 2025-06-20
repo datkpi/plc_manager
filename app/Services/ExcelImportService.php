@@ -28,15 +28,15 @@ class ExcelImportService
             
             Log::info('Đã đọc file Excel thành công. Số dòng: ' . count($rows));
 
-            // Log dữ liệu gốc để debug
+            // Log chi tiết từng dòng dữ liệu gốc
             foreach ($rows as $index => $row) {
-                Log::info("Dữ liệu gốc dòng " . ($index + 1) . ": " . json_encode($row));
+                Log::info("Dữ liệu gốc dòng " . ($index + 1) . ": " . json_encode($row, JSON_UNESCAPED_UNICODE));
             }
 
             // Bỏ qua dòng tiêu đề và các dòng rỗng
             $dataRows = array_filter($rows, function($row, $index) {
-                // Log để debug
-                Log::info("Đang xét dòng " . ($index + 1) . ": " . json_encode($row));
+                // Log để debug từng dòng
+                Log::info("Đang kiểm tra dòng " . ($index + 1) . ": " . json_encode($row, JSON_UNESCAPED_UNICODE));
                 
                 // Bỏ qua dòng tiêu đề (index 0)
                 if ($index === 0) {
@@ -44,13 +44,18 @@ class ExcelImportService
                     return false;
                 }
                 
-                // Kiểm tra nếu dòng có ít nhất một ô không trống
-                $hasData = !empty(array_filter($row, function($cell) {
-                    return trim((string)$cell) !== '';
-                }));
+                // Kiểm tra từng cell trong dòng
+                $nonEmptyCells = array_filter($row, function($cell) {
+                    $cellValue = trim((string)$cell);
+                    return $cellValue !== '' && $cellValue !== null;
+                });
+                
+                $hasData = !empty($nonEmptyCells);
                 
                 if (!$hasData) {
-                    Log::info("Bỏ qua dòng trống " . ($index + 1));
+                    Log::info("Bỏ qua dòng " . ($index + 1) . " vì không có dữ liệu");
+                } else {
+                    Log::info("Chấp nhận dòng " . ($index + 1) . " với " . count($nonEmptyCells) . " ô có dữ liệu");
                 }
                 
                 return $hasData;
@@ -59,9 +64,10 @@ class ExcelImportService
             // Reset array keys để đảm bảo index liên tục
             $dataRows = array_values($dataRows);
             
-            // Log dữ liệu sau khi lọc
+            // Log kết quả sau khi lọc
+            Log::info("Tổng số dòng sau khi lọc: " . count($dataRows));
             foreach ($dataRows as $index => $row) {
-                Log::info("Dữ liệu sau lọc dòng " . ($index + 1) . ": " . json_encode($row));
+                Log::info("Dòng " . ($index + 1) . " sau khi lọc: " . json_encode($row, JSON_UNESCAPED_UNICODE));
             }
             
             Log::info('Số dòng dữ liệu cần import: ' . count($dataRows));
@@ -178,38 +184,40 @@ class ExcelImportService
                     $downtime = 0;
 
                     // Tạo hoặc cập nhật ProductionEntry
-                    $entry = ProductionEntry::updateOrCreate(
-                        [
-                            'date' => $date,
-                            'shift' => $shift,
-                            'machine_id' => $machine->id,
-                            'product_code' => $productCode,
-                            'product_length' => $productLength
-                        ],
-                        [
-                            'output_quantity' => $runQuantity,
-                            'good_quantity' => $goodQuantity,
-                            'defect_weight' => $defectWeight,
-                            'waste_weight' => $wasteWeight,
-                            'notes' => $notes,
-                            'operator_name' => $operatorName,
-                            'operator_team' => $operatorTeam,
-                            'machine_operator' => $machineOperator,
-                            'quality_checker' => $qualityInspector,
-                            'warehouse_staff' => $warehouseStaff
-                        ]
-                    );
+                    try {
+                        $entry = ProductionEntry::updateOrCreate(
+                            [
+                                'date' => $date,
+                                'shift' => $shift,
+                                'machine_id' => $machine->id,
+                                'product_code' => $productCode,
+                                'product_length' => $productLength
+                            ],
+                            [
+                                'output_quantity' => $runQuantity,
+                                'good_quantity' => $goodQuantity,
+                                'defect_weight' => $defectWeight,
+                                'waste_weight' => $wasteWeight,
+                                'notes' => $notes,
+                                'operator_name' => $operatorName,
+                                'operator_team' => $operatorTeam,
+                                'machine_operator' => $machineOperator,
+                                'quality_checker' => $qualityInspector,
+                                'warehouse_staff' => $warehouseStaff
+                            ]
+                        );
 
-                    Log::info("Dòng {$rowNumber}: Import thành công ID={$entry->id}");
-                    $importResults['success']++;
-                    
-                    // Commit transaction cho dòng này
-                    DB::commit();
+                        Log::info("Dòng {$rowNumber}: Import thành công ID={$entry->id}");
+                        $importResults['success']++;
+                        DB::commit();
+                    } catch (\Exception $e) {
+                        DB::rollBack();
+                        Log::error("Lỗi khi lưu dữ liệu dòng {$rowNumber}: " . $e->getMessage());
+                        throw new \Exception("Lỗi khi lưu dữ liệu: " . $e->getMessage());
+                    }
 
                 } catch (\Exception $e) {
-                    // Rollback transaction cho dòng này
                     DB::rollBack();
-                    
                     $importResults['error']++;
                     $importResults['errors'][] = "Dòng {$rowNumber}: " . $e->getMessage();
                     Log::error("Lỗi import dòng {$rowNumber}: " . $e->getMessage());
@@ -269,53 +277,66 @@ class ExcelImportService
         }
 
         try {
+            // Log để debug
+            Log::info("Đang xử lý ngày từ Excel: " . $dateString);
+            
             // Kiểm tra nếu là dạng Excel numeric date
             if (is_numeric($dateString)) {
-                $excelBaseDate = Carbon::createFromDate(1900, 1, 1);
-                return $excelBaseDate->addDays($dateString - 2)->format('Y-m-d');
+                $unixDate = ($dateString - 25569) * 86400;
+                $date = Carbon::createFromTimestamp($unixDate);
+                Log::info("Chuyển đổi Excel numeric date thành: " . $date->format('Y-m-d'));
+                return $date->format('Y-m-d');
             }
             
-            // Xử lý định dạng dd/MM/yyyy
-            if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{4}$/', $dateString)) {
-                $parts = explode('/', $dateString);
-                if (count($parts) === 3) {
-                    $day = (int)$parts[0];
-                    $month = (int)$parts[1];
-                    $year = (int)$parts[2];
-                    return sprintf('%04d-%02d-%02d', $year, $month, $day);
-                }
-            }
-            
-            // Xử lý ngày tháng với các định dạng khác
-            $date = Carbon::parse($dateString);
-            return $date->format('Y-m-d');
-        } catch (\Exception $e) {
-            Log::warning("Không thể parse ngày: {$dateString}, lỗi: {$e->getMessage()}, sử dụng ngày hiện tại");
-            
-            // Thử xử lý bằng cách split và reconstructing date string
-            try {
-                $parts = preg_split('/[\/\-\.]/', $dateString);
-                if (count($parts) === 3) {
-                    // Giả định định dạng ngày/tháng/năm
-                    $day = (int)$parts[0];  
-                    $month = (int)$parts[1];
-                    $year = (int)$parts[2];
+            // Chuẩn hóa định dạng ngày
+            if (is_string($dateString)) {
+                // Xử lý định dạng dd/mm/y hoặc dd/mm/Y từ Excel (định dạng Việt Nam)
+                if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/', $dateString, $matches)) {
+                    $day = (int)$matches[1];
+                    $month = (int)$matches[2];
+                    $year = (int)$matches[3];
                     
-                    // Đảm bảo năm có 4 chữ số
+                    // Xử lý năm 2 chữ số
                     if ($year < 100) {
-                        $year += 2000;
+                        $year += 2000; // Chuyển '25' thành '2025'
                     }
                     
-                    // Xác thực giá trị ngày tháng hợp lệ
-                    if ($month >= 1 && $month <= 12 && $day >= 1 && $day <= 31) {
-                        return sprintf('%04d-%02d-%02d', $year, $month, $day);
+                    // Kiểm tra tính hợp lệ của ngày tháng
+                    if (!checkdate($month, $day, $year)) {
+                        throw new \Exception("Ngày tháng không hợp lệ: {$day}/{$month}/{$year}");
                     }
+
+                    // Kiểm tra năm hợp lệ
+                    $currentYear = (int)date('Y');
+                    if ($year > $currentYear) {
+                        throw new \Exception("Năm không được lớn hơn năm hiện tại: {$year}");
+                    }
+                    
+                    // Chuẩn hóa về định dạng Y-m-d
+                    $formattedDate = sprintf('%04d-%02d-%02d', $year, $month, $day);
+                    Log::info("Chuyển đổi ngày {$dateString} thành: " . $formattedDate);
+                    return $formattedDate;
                 }
-            } catch (\Exception $e2) {
-                Log::error("Lỗi xử lý thủ công ngày tháng: " . $e2->getMessage());
             }
             
-            return date('Y-m-d');
+            // Thử parse với Carbon với định dạng Việt Nam
+            try {
+                $date = Carbon::createFromFormat('d/m/Y', $dateString);
+                if ($date) {
+                    // Kiểm tra năm hợp lệ
+                    if ($date->year > date('Y')) {
+                        throw new \Exception("Năm không được lớn hơn năm hiện tại: " . $date->year);
+                    }
+                    return $date->format('Y-m-d');
+                }
+            } catch (\Exception $e) {
+                // Nếu không parse được theo định dạng Việt Nam, báo lỗi
+                throw new \Exception("Không thể chuyển đổi ngày: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy");
+            }
+            
+        } catch (\Exception $e) {
+            Log::error("Lỗi parse ngày {$dateString}: " . $e->getMessage());
+            throw new \Exception("Ngày không hợp lệ: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy");
         }
     }
 

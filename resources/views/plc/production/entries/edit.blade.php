@@ -24,7 +24,11 @@
                <div class="col-md-4">
                    <div class="form-group">
                        <label>Ngày <span class="text-danger">*</span></label>
-                       <input type="date" class="form-control" name="date" value="{{ old('date', $entry->date->format('Y-m-d')) }}" required>
+                       <input type="date" class="form-control" name="date" 
+                              value="{{ old('date', $entry->date_for_input) }}"
+                              min="{{ date('Y-m-d', strtotime('-1 year')) }}"
+                              max="{{ date('Y-m-d') }}"
+                              required>
                    </div>
                </div>
                <div class="col-md-4">

@@ -109,9 +109,8 @@ class MachineThreshold extends Model
 
     protected function getAverageValue($minutes)
     {
-        // Get PLC data from last 10 minutes
+        // Lấy dữ liệu PLC từ 10 phút trước
         $data = $this->machine->plcData()
-            ->where('plc_data_key', $this->plc_data_key)
             ->where('created_at', '>=', now()->subMinutes($minutes))
             ->get();
 
@@ -119,6 +118,31 @@ class MachineThreshold extends Model
             return null;
         }
 
-        return $data->avg('value');
+        // Chuyển đổi plc_data_key thành tên cột tương ứng
+        $columnName = $this->mapPlcDataKeyToColumn($this->plc_data_key);
+        if (!$columnName) {
+            return null;
+        }
+
+        // Tính giá trị trung bình của cột
+        return $data->avg($columnName);
+    }
+
+    protected function mapPlcDataKeyToColumn($plcDataKey)
+    {
+        // Map các giá trị plc_data_key sang tên cột tương ứng
+        $mapping = [
+            '%MD108' => 'toc_do_thuc_te_vx',
+            '%MD112' => 'toc_do_thuc_te_may_chi',
+            '%MD116' => 'toc_do_thuc_te_dan_keo_m_p',
+            '%MD120' => 'toc_do_dat_vx',
+            '%MD124' => 'toc_do_dat_may_chi',
+            '%MD128' => 'toc_do_dat_dan_keo',
+            '%MD176' => 'nhiet_do_nhua',
+            '%MD180' => 'app_luc_nhua',
+            // Thêm các mapping khác nếu cần
+        ];
+
+        return $mapping[$plcDataKey] ?? null;
     }
 }
