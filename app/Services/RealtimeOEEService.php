@@ -282,20 +282,146 @@ class RealtimeOEEService
         
         // 3. Tính thời gian đã trôi qua của ca (phút)
         $elapsedMinutes = $shiftStartTime->diffInMinutes($now);
-        
+
         // 4. Lấy dữ liệu PLC của ca hiện tại
-        $plcData = PlcData::where('machine_id', $machineId)
+        $currentPlcData = PlcData::where('machine_id', $machineId)
             ->where('datalog_data_ca', $shift)
             ->orderBy('id', 'desc')
             ->first();
 
-        // 5. Lấy giờ chạy 2 từ bản ghi cuối cùng của ca
-        $runTimeMinutes = $plcData ? $plcData->datalog_data_gio_chay_2 : 0;
+        if (!$currentPlcData) {
+            \Log::warning("No PLC data found for current shift");
+            return 0;
+        }
 
-        // 6. Tính Availability = Thời gian chạy / Thời gian đã trôi qua
+        $currentProduct = $currentPlcData->datalog_data_ma_sp;
+        $runTimeMinutes = $currentPlcData->datalog_data_gio_chay_2 ?? 0;
+
+        // 5. Nếu là CA2 hoặc CA3, tính toán giờ chạy từ ca trước
+        if ($shift !== 'CA1') {
+            $previousShift = $shift === 'CA2' ? 'CA1' : 'CA2';
+            $previousDate = $now->format('Y-m-d');
+
+            // Nếu là CA3 trước 6h sáng, lấy dữ liệu của ngày hôm trước
+            if ($shift === 'CA3' && $now->format('H:i:s') < '06:00:00') {
+                $previousDate = $now->copy()->subDay()->format('Y-m-d');
+            }
+
+            // Lấy tất cả bản ghi PLC của ca trước theo thời gian
+            $previousPlcData = PlcData::where('machine_id', $machineId)
+                ->where('datalog_data_ca', $previousShift)
+                ->whereDate('datalog_date', $previousDate)
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($previousPlcData->isNotEmpty()) {
+                // Tính thời gian chạy cho từng sản phẩm trong ca trước
+                $productRunTimes = [];
+                $lastRecord = null;
+                $lastProductCode = null;
+
+                foreach ($previousPlcData as $record) {
+                    $productCode = $record->datalog_data_ma_sp;
+                    
+                    // Nếu là sản phẩm mới hoặc bản ghi đầu tiên
+                    if ($productCode !== $lastProductCode) {
+                        // Lưu giờ chạy cho sản phẩm trước đó
+                        if ($lastProductCode && $lastRecord) {
+                            $productRunTimes[$lastProductCode] = $lastRecord->datalog_data_gio_chay_2 ?? 0;
+                        }
+                    }
+
+                    $lastProductCode = $productCode;
+                    $lastRecord = $record;
+                }
+
+                // Xử lý sản phẩm cuối cùng
+                if ($lastProductCode && $lastRecord) {
+                    $productRunTimes[$lastProductCode] = $lastRecord->datalog_data_gio_chay_2 ?? 0;
+                }
+
+                // Tính tỷ lệ thời gian chạy cho từng sản phẩm
+                $totalTime = array_sum($productRunTimes);
+                if ($totalTime > 0) {
+                    foreach ($productRunTimes as $productCode => $runtime) {
+                        $ratio = $runtime / $totalTime;
+                        if ($productCode === $currentProduct) {
+                            // Lấy giờ chạy 2 của bản ghi cuối cùng trong ca trước
+                            $lastPreviousRecord = $previousPlcData->last();
+                            $previousRunTime = $lastPreviousRecord->datalog_data_gio_chay_2 ?? 0;
+                            // Cộng thêm thời gian chạy theo tỷ lệ
+                            $runTimeMinutes += $previousRunTime * $ratio;
+                            \Log::info("Added proportional runtime from previous shift for product $productCode: " . 
+                                     "Runtime = $runtime, Total = $totalTime, " .
+                                     "Ratio = " . round($ratio * 100, 2) . "%, " .
+                                     "Added = " . round($previousRunTime * $ratio, 2) . " minutes");
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Nếu là CA1, xử lý tương tự với CA3 của ngày hôm trước
+        if ($shift === 'CA1') {
+            $previousDate = $now->copy()->subDay()->format('Y-m-d');
+            
+            $previousPlcData = PlcData::where('machine_id', $machineId)
+                ->where('datalog_data_ca', 'CA3')
+                ->whereDate('datalog_date', $previousDate)
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($previousPlcData->isNotEmpty()) {
+                // Tính thời gian chạy cho từng sản phẩm
+                $productRunTimes = [];
+                $lastRecord = null;
+                $lastProductCode = null;
+
+                foreach ($previousPlcData as $record) {
+                    $productCode = $record->datalog_data_ma_sp;
+                    
+                    // Nếu là sản phẩm mới hoặc bản ghi đầu tiên
+                    if ($productCode !== $lastProductCode) {
+                        // Lưu giờ chạy cho sản phẩm trước đó
+                        if ($lastProductCode && $lastRecord) {
+                            $productRunTimes[$lastProductCode] = $lastRecord->datalog_data_gio_chay_2 ?? 0;
+                        }
+                    }
+
+                    $lastProductCode = $productCode;
+                    $lastRecord = $record;
+                }
+
+                // Xử lý sản phẩm cuối cùng
+                if ($lastProductCode && $lastRecord) {
+                    $productRunTimes[$lastProductCode] = $lastRecord->datalog_data_gio_chay_2 ?? 0;
+                }
+
+                // Tính tỷ lệ thời gian chạy cho từng sản phẩm
+                $totalTime = array_sum($productRunTimes);
+                if ($totalTime > 0) {
+                    foreach ($productRunTimes as $productCode => $runtime) {
+                        $ratio = $runtime / $totalTime;
+                        if ($productCode === $currentProduct) {
+                            $lastPreviousRecord = $previousPlcData->last();
+                            $previousRunTime = $lastPreviousRecord->datalog_data_gio_chay_2 ?? 0;
+                            $runTimeMinutes += $previousRunTime * $ratio;
+                            \Log::info("Added proportional runtime from previous day CA3 for product $productCode: " . 
+                                     "Runtime = $runtime, Total = $totalTime, " .
+                                     "Ratio = " . round($ratio * 100, 2) . "%, " .
+                                     "Added = " . round($previousRunTime * $ratio, 2) . " minutes");
+                        }
+                    }
+                }
+            }
+        }
+
+        \Log::info("Total runtime after adding proportional previous shifts: $runTimeMinutes minutes");
+
+        // 7. Tính Availability = Thời gian chạy / Thời gian đã trôi qua
         $availability = $elapsedMinutes > 0 ? $runTimeMinutes / $elapsedMinutes : 0;
 
-        // 7. Giới hạn tối đa là 1 (100%)
+        // 8. Giới hạn tối đa là 1 (100%)
         return min(1, $availability);
     }
 

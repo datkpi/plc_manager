@@ -54,7 +54,7 @@
                     <tr>
                         <td>{{ date('d/m/Y', strtotime($entry->date)) }}</td>
                         <td>{{ $entry->shift }}</td>
-                        <td>{{ $entry->machine->name }}</td>
+                        <td>{{ $entry->machine->name }}</td>    
                         <td>{{ $entry->product_code }}</td>
                         <td class="text-right">{{ number_format($entry->output_quantity) }}</td>
                         <td class="text-right">{{ number_format($entry->good_quantity) }}</td>

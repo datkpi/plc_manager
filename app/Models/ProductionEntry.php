@@ -26,6 +26,9 @@ class ProductionEntry extends Model
     ];
 
     protected $casts = [
+        'date' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
         // 'date' => 'date:Y-m-d',
         'output_quantity' => 'integer',
         'good_quantity' => 'integer',

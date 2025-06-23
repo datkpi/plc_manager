@@ -56,11 +56,12 @@ class ProductionReportController extends Controller
         ];
         
         foreach ($entries as $entry) {
-            $dateKey = $entry->date->format('Y-m-d');
+            // Chuyển đổi date thành đối tượng Carbon trước khi gọi format()
+            $dateKey = Carbon::parse($entry->date)->format('Y-m-d');
             
             if (!isset($reportData[$dateKey])) {
                 $reportData[$dateKey] = [
-                    'date' => $entry->date,
+                    'date' => Carbon::parse($entry->date),
                     'entries' => collect([]),
                     'daily_totals' => [
                         'CA1' => [

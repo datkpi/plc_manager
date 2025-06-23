@@ -110,7 +110,7 @@
                         @foreach($dayData['entries'] as $index => $entry)
                             <tr>
                                 @if($index === 0)
-                                    <td rowspan="{{ count($dayData['entries']) }}" class="align-middle text-center">
+                                    <td rowspan="{{ count($dayData['entries']) }}" class="align-middle">
                                         {{ $date->format('d/m/Y') }}
                                     </td>
                                 @endif
