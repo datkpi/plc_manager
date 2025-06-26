@@ -263,7 +263,7 @@ $(function() {
     
     // Sự kiện khi thay đổi số lượng hoặc chiều dài
     $('#output_quantity, #good_quantity, #defect_weight').change(function() {
-        calculateWeights();
+        // calculateWeights();
     });
     
     // Hàm tính toán khối lượng

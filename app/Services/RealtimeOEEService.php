@@ -125,65 +125,8 @@ class RealtimeOEEService
         $planQuantity = $latestPlcData->khsxm ?? 0;
         \Log::info("Kế hoạch sản xuất (mét): " . $planQuantity);
 
-        // Lấy dữ liệu PLC mới nhất
-        $plcRecords = PlcData::where('machine_id', $machineId)
-            ->whereDate('created_at', $now->format('Y-m-d'))
-            ->orderBy('created_at', 'desc')
-            ->get(['created_at', 'toc_do_thuc_te_vx', 'toc_do_thuc_te_dan_keo_m_p', 'datalog_data_ma_sp']);
-
-        // Tính actual_quantity từ tốc độ thực tế dàn kéo
-        $actualQuantity = 0;
-        $startRunTime = null;
-        $lastProductCode = null;
-
-        foreach ($plcRecords as $record) {
-            $recordProductCode = $record->datalog_data_ma_sp;
-            
-            // Nếu gặp mã sản phẩm khác, dừng vòng lặp
-            if ($recordProductCode !== $currentProduct && $lastProductCode === $currentProduct) {
-                break;
-            }
-
-            // Chỉ tính khi là sản phẩm hiện tại và tốc độ > 50
-            if ($recordProductCode === $currentProduct && $record->toc_do_thuc_te_vx > 50) {
-                $currentSpeed = $record->toc_do_thuc_te_dan_keo_m_p;
-                $currentTime = Carbon::parse($record->created_at);
-
-                if ($startRunTime === null) {
-                    $startRunTime = $currentTime;
-                    $periodStartSpeed = $currentSpeed;
-                }
-
-                // Kết thúc một đoạn chạy khi:
-                // 1. Tốc độ <= 50 ở bản ghi tiếp theo
-                // 2. Hoặc là bản ghi cuối cùng của sản phẩm này
-                $nextRecord = $plcRecords->where('created_at', '<', $record->created_at)->first();
-                if (!$nextRecord || 
-                    $nextRecord->toc_do_thuc_te_vx <= 50 || 
-                    $nextRecord->datalog_data_ma_sp !== $currentProduct) {
-                    
-                    if ($startRunTime) {
-                        $periodRunTime = $startRunTime->diffInSeconds($currentTime);
-                        if ($periodRunTime > 0) {
-                            // Tốc độ trung bình của đoạn (m/p)
-                            $avgSpeed = ($periodStartSpeed + $currentSpeed) / 2;
-                            // Số mét = tốc độ (m/p) * thời gian (giây) / 60
-                            $meters = $avgSpeed * ($periodRunTime / 60);
-                            $actualQuantity += $meters;
-
-                            \Log::info("Đoạn chạy từ " . $currentTime->format('Y-m-d H:i:s') . 
-                                     " đến " . $startRunTime->format('Y-m-d H:i:s') . 
-                                     ", thời gian: " . $periodRunTime . " giây" .
-                                     ", tốc độ TB: " . $avgSpeed . " m/p" .
-                                     ", sản lượng: " . $meters . " mét");
-                        }
-                        $startRunTime = null;
-                    }
-                }
-            }
-            
-            $lastProductCode = $recordProductCode;
-        }
+        // Tính actual_quantity từ tốc độ thực tế dàn kéo, gộp các ca của cùng sản phẩm
+        $actualQuantity = $this->calculateActualQuantity($machineId, $currentProduct, $now);
 
         \Log::info("Sản lượng thực tế từ tốc độ dàn kéo: " . $actualQuantity . " mét");
 
@@ -602,5 +545,97 @@ class RealtimeOEEService
                   ", tốc độ thực tế TB: " . round($avgSpeed, 3) . " m/p)");
         
         return $remainingMinutes;
+    }
+
+    /**
+     * Tính actual_quantity từ tốc độ thực tế dàn kéo, gộp các ca của cùng sản phẩm
+     */
+    protected function calculateActualQuantity($machineId, $currentProduct, $now)
+    {
+        // Xác định ca hiện tại và thời điểm bắt đầu tìm kiếm
+        $currentShift = $this->getCurrentShift($now);
+        $searchStartTime = null;
+
+        // Nếu là CA1, tìm từ CA3 ngày hôm trước
+        if ($currentShift === 'CA1') {
+            $searchStartTime = $now->copy()->subDay()->setTime(22, 0, 0);
+        }
+        // Nếu là CA2, tìm từ CA1 cùng ngày
+        else if ($currentShift === 'CA2') {
+            $searchStartTime = $now->copy()->setTime(6, 0, 0);
+        }
+        // Nếu là CA3
+        else {
+            // Nếu trước 6h sáng, tìm từ CA3 ngày hôm trước
+            if ($now->format('H:i:s') < '06:00:00') {
+                $searchStartTime = $now->copy()->subDay()->setTime(22, 0, 0);
+            } else {
+                // Sau 6h sáng, tìm từ CA2 cùng ngày
+                $searchStartTime = $now->copy()->setTime(14, 0, 0);
+            }
+        }
+
+        \Log::info("Calculating actual quantity from " . $searchStartTime->format('Y-m-d H:i:s') . 
+                  " to " . $now->format('Y-m-d H:i:s') . 
+                  " for product " . $currentProduct);
+
+        // Lấy bản ghi mới nhất có tốc độ vít xoắn > 50 và là sản phẩm hiện tại
+        $latestRecord = PlcData::where('machine_id', $machineId)
+            ->where('created_at', '>=', $searchStartTime)
+            ->where('created_at', '<=', $now)
+            ->where('datalog_data_ma_sp', $currentProduct)
+            ->where('toc_do_thuc_te_vx', '>', 50)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$latestRecord) {
+            \Log::info("No running records found for current product");
+            return 0;
+        }
+
+        // Lấy bản ghi đầu tiên có tốc độ vít xoắn > 50 sau bản ghi mới nhất có tốc độ <= 50
+        $lastStopRecord = PlcData::where('machine_id', $machineId)
+            ->where('created_at', '<=', $latestRecord->created_at)
+            ->where('datalog_data_ma_sp', $currentProduct)
+            ->where('toc_do_thuc_te_vx', '<=', 50)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        $startRecord = null;
+        if ($lastStopRecord) {
+            $startRecord = PlcData::where('machine_id', $machineId)
+                ->where('created_at', '>', $lastStopRecord->created_at)
+                ->where('datalog_data_ma_sp', $currentProduct)
+                ->where('toc_do_thuc_te_vx', '>', 50)
+                ->orderBy('created_at', 'asc')
+                ->first();
+        }
+
+        // Nếu không tìm thấy điểm dừng trước đó, lấy bản ghi đầu tiên của sản phẩm có tốc độ > 50
+        if (!$startRecord) {
+            $startRecord = PlcData::where('machine_id', $machineId)
+                ->where('created_at', '>=', $searchStartTime)
+                ->where('datalog_data_ma_sp', $currentProduct)
+                ->where('toc_do_thuc_te_vx', '>', 50)
+                ->orderBy('created_at', 'asc')
+                ->first();
+        }
+
+        if (!$startRecord) {
+            \Log::info("No start record found for current product");
+            return 0;
+        }
+
+        // Tính actual_quantity bằng cách lấy hiệu của giờ chạy 2
+        $actualQuantity = ($latestRecord->datalog_data_gio_chay_2 ?? 0) - ($startRecord->datalog_data_gio_chay_2 ?? 0);
+
+        \Log::info("Actual quantity calculation:" .
+                  "\nStart record at: " . $startRecord->created_at .
+                  "\nStart running time: " . $startRecord->datalog_data_gio_chay_2 .
+                  "\nLatest record at: " . $latestRecord->created_at .
+                  "\nLatest running time: " . $latestRecord->datalog_data_gio_chay_2 .
+                  "\nActual quantity: " . $actualQuantity);
+
+        return max(0, $actualQuantity);
     }
 } 
