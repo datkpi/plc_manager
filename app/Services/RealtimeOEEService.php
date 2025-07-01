@@ -579,63 +579,55 @@ class RealtimeOEEService
                   " to " . $now->format('Y-m-d H:i:s') . 
                   " for product " . $currentProduct);
 
-        // Lấy bản ghi mới nhất có tốc độ vít xoắn > 50 và là sản phẩm hiện tại
-        $latestRecord = PlcData::where('machine_id', $machineId)
-            ->where('created_at', '>=', $searchStartTime)
+        // Lấy bản ghi cuối cùng của ca hiện tại
+        $currentShiftRecord = PlcData::where('machine_id', $machineId)
             ->where('created_at', '<=', $now)
             ->where('datalog_data_ma_sp', $currentProduct)
-            ->where('toc_do_thuc_te_vx', '>', 50)
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$latestRecord) {
-            \Log::info("No running records found for current product");
+        if (!$currentShiftRecord) {
+            \Log::info("No records found for current shift");
             return 0;
         }
 
-        // Lấy bản ghi đầu tiên có tốc độ vít xoắn > 50 sau bản ghi mới nhất có tốc độ <= 50
-        $lastStopRecord = PlcData::where('machine_id', $machineId)
-            ->where('created_at', '<=', $latestRecord->created_at)
+        // Lấy tất cả các ca trước đó
+        $previousShifts = PlcData::where('machine_id', $machineId)
+            ->where('created_at', '>=', $searchStartTime)
+            ->where('created_at', '<', $now)
             ->where('datalog_data_ma_sp', $currentProduct)
-            ->where('toc_do_thuc_te_vx', '<=', 50)
-            ->orderBy('created_at', 'desc')
-            ->first();
+            ->orderBy('created_at', 'asc')
+            ->get()
+            ->groupBy(function($record) {
+                return Carbon::parse($record->created_at)->format('Y-m-d H');
+            });
 
-        $startRecord = null;
-        if ($lastStopRecord) {
-            $startRecord = PlcData::where('machine_id', $machineId)
-                ->where('created_at', '>', $lastStopRecord->created_at)
-                ->where('datalog_data_ma_sp', $currentProduct)
-                ->where('toc_do_thuc_te_vx', '>', 50)
-                ->orderBy('created_at', 'asc')
-                ->first();
+        // Tính tổng giờ chạy 2
+        $totalRunTime = $currentShiftRecord->datalog_data_gio_chay_2;
+        
+        \Log::info("=== RUNNING TIME CALCULATION ===");
+        \Log::info("Current shift record:" .
+            "\nID: " . $currentShiftRecord->id .
+            "\nCreated at: " . $currentShiftRecord->created_at .
+            "\nGiờ chạy 2: " . $currentShiftRecord->datalog_data_gio_chay_2 .
+            "\nTốc độ VX: " . $currentShiftRecord->toc_do_thuc_te_vx);
+
+        // Cộng dồn giờ chạy 2 từ các ca trước
+        foreach ($previousShifts as $hour => $records) {
+            // Lấy bản ghi cuối cùng của mỗi ca
+            $lastRecord = $records->last();
+            
+            \Log::info("Previous shift at $hour:" .
+                "\nID: " . $lastRecord->id .
+                "\nCreated at: " . $lastRecord->created_at .
+                "\nGiờ chạy 2: " . $lastRecord->datalog_data_gio_chay_2 .
+                "\nTốc độ VX: " . $lastRecord->toc_do_thuc_te_vx);
+            
+            $totalRunTime += $lastRecord->datalog_data_gio_chay_2;
         }
 
-        // Nếu không tìm thấy điểm dừng trước đó, lấy bản ghi đầu tiên của sản phẩm có tốc độ > 50
-        if (!$startRecord) {
-            $startRecord = PlcData::where('machine_id', $machineId)
-                ->where('created_at', '>=', $searchStartTime)
-                ->where('datalog_data_ma_sp', $currentProduct)
-                ->where('toc_do_thuc_te_vx', '>', 50)
-                ->orderBy('created_at', 'asc')
-                ->first();
-        }
+        \Log::info("Total run time after adding all shifts: " . $totalRunTime);
 
-        if (!$startRecord) {
-            \Log::info("No start record found for current product");
-            return 0;
-        }
-
-        // Tính actual_quantity bằng cách lấy hiệu của giờ chạy 2
-        $actualQuantity = ($latestRecord->datalog_data_gio_chay_2 ?? 0) - ($startRecord->datalog_data_gio_chay_2 ?? 0);
-
-        \Log::info("Actual quantity calculation:" .
-                  "\nStart record at: " . $startRecord->created_at .
-                  "\nStart running time: " . $startRecord->datalog_data_gio_chay_2 .
-                  "\nLatest record at: " . $latestRecord->created_at .
-                  "\nLatest running time: " . $latestRecord->datalog_data_gio_chay_2 .
-                  "\nActual quantity: " . $actualQuantity);
-
-        return max(0, $actualQuantity);
+        return max(0, $totalRunTime);
     }
 } 

@@ -265,7 +265,7 @@ class DashboardController extends Controller
         });
 
         // Trả về dữ liệu cho dashboard
-        return [
+        $response = [
             'machine' => [
                 'name' => $historyData['machine']->name,
                 'current_product' => $currentProduct,
@@ -295,6 +295,8 @@ class DashboardController extends Controller
                     : 'còn 00:00'
             ]
         ];
+
+        return response()->json($response);
     }
 
     public function calculateAvailability($machineId, $shift) {

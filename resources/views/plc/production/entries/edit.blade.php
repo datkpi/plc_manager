@@ -52,7 +52,7 @@
                                    {{ $machine->name }}
                                </option>
                            @endforeach
-                       </select>
+                       </   >
                    </div>
                </div>
            </div>

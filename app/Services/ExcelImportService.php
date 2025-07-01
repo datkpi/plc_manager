@@ -290,20 +290,15 @@ class ExcelImportService
             
             // Chuẩn hóa định dạng ngày
             if (is_string($dateString)) {
-                // Xử lý định dạng dd/mm/y hoặc dd/mm/Y từ Excel (định dạng Việt Nam)
+                // Xử lý định dạng dd/mm/y hoặc dd/mm/Y hoặc mm/dd/y hoặc mm/dd/Y từ Excel
                 if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/', $dateString, $matches)) {
-                    $day = (int)$matches[1];
-                    $month = (int)$matches[2];
+                    $firstNumber = (int)$matches[1];
+                    $secondNumber = (int)$matches[2];
                     $year = (int)$matches[3];
                     
                     // Xử lý năm 2 chữ số
                     if ($year < 100) {
                         $year += 2000; // Chuyển '25' thành '2025'
-                    }
-                    
-                    // Kiểm tra tính hợp lệ của ngày tháng
-                    if (!checkdate($month, $day, $year)) {
-                        throw new \Exception("Ngày tháng không hợp lệ: {$day}/{$month}/{$year}");
                     }
 
                     // Kiểm tra năm hợp lệ
@@ -311,32 +306,49 @@ class ExcelImportService
                     if ($year > $currentYear) {
                         throw new \Exception("Năm không được lớn hơn năm hiện tại: {$year}");
                     }
-                    
-                    // Chuẩn hóa về định dạng Y-m-d
-                    $formattedDate = sprintf('%04d-%02d-%02d', $year, $month, $day);
-                    Log::info("Chuyển đổi ngày {$dateString} thành: " . $formattedDate);
-                    return $formattedDate;
+
+                    // Thử cả hai trường hợp: dd/mm và mm/dd
+                    $possibleDates = [
+                        // Trường hợp 1: firstNumber là ngày
+                        ['day' => $firstNumber, 'month' => $secondNumber],
+                        // Trường hợp 2: firstNumber là tháng
+                        ['day' => $secondNumber, 'month' => $firstNumber]
+                    ];
+
+                    foreach ($possibleDates as $dateAttempt) {
+                        if (checkdate($dateAttempt['month'], $dateAttempt['day'], $year)) {
+                            // Chuẩn hóa về định dạng Y-m-d
+                            $formattedDate = sprintf('%04d-%02d-%02d', $year, $dateAttempt['month'], $dateAttempt['day']);
+                            Log::info("Chuyển đổi ngày {$dateString} thành: " . $formattedDate);
+                            return $formattedDate;
+                        }
+                    }
+
+                    // Nếu không có trường hợp nào hợp lệ
+                    throw new \Exception("Ngày tháng không hợp lệ: {$dateString}");
                 }
             }
             
-            // Thử parse với Carbon với định dạng Việt Nam
-            try {
-                $date = Carbon::createFromFormat('d/m/Y', $dateString);
-                if ($date) {
-                    // Kiểm tra năm hợp lệ
-                    if ($date->year > date('Y')) {
-                        throw new \Exception("Năm không được lớn hơn năm hiện tại: " . $date->year);
+            // Thử parse với Carbon với các định dạng khác nhau
+            $formats = ['d/m/Y', 'm/d/Y'];
+            foreach ($formats as $format) {
+                try {
+                    $date = Carbon::createFromFormat($format, $dateString);
+                    if ($date && $date->year <= date('Y')) {
+                        Log::info("Đã parse thành công ngày với định dạng {$format}");
+                        return $date->format('Y-m-d');
                     }
-                    return $date->format('Y-m-d');
+                } catch (\Exception $e) {
+                    continue;
                 }
-            } catch (\Exception $e) {
-                // Nếu không parse được theo định dạng Việt Nam, báo lỗi
-                throw new \Exception("Không thể chuyển đổi ngày: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy");
             }
+            
+            // Nếu không parse được theo bất kỳ định dạng nào
+            throw new \Exception("Không thể chuyển đổi ngày: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy hoặc mm/dd/yyyy");
             
         } catch (\Exception $e) {
             Log::error("Lỗi parse ngày {$dateString}: " . $e->getMessage());
-            throw new \Exception("Ngày không hợp lệ: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy");
+            throw new \Exception("Ngày không hợp lệ: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy hoặc mm/dd/yyyy");
         }
     }
 
