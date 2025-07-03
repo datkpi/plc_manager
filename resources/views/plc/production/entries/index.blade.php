@@ -93,51 +93,106 @@
 <div class="modal fade" id="importModal" tabindex="-1" role="dialog" aria-labelledby="importModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg" role="document">
         <div class="modal-content">
-            <form action="{{ route('plc.production.entries.import.process') }}" method="POST" enctype="multipart/form-data" id="importForm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importModalLabel">Import dữ liệu từ Excel</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <form action="{{ route('plc.production.entries.import') }}" method="POST" enctype="multipart/form-data" id="importForm">
                 @csrf
-                <div class="modal-header">
-                    <h5 class="modal-title" id="importModalLabel">Import dữ liệu sản xuất từ Excel</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
                 <div class="modal-body">
-                    @if ($errors->any())
-                        <div class="alert alert-danger">
-                            <ul class="mb-0">
-                                @foreach ($errors->all() as $error)
-                                    <li>{{ $error }}</li>
-                                @endforeach
-                            </ul>
-                        </div>
-                    @endif
-
+                    <!-- Hướng dẫn import -->
                     <div class="alert alert-info">
-                        <p>Hướng dẫn:</p>
-                        <ol>
-                            <li>Tải xuống <a href="{{ route('plc.production.entries.import.template') }}" class="font-weight-bold">tệp mẫu Excel</a></li>
-                            <li>Điền dữ liệu vào tệp mẫu theo đúng định dạng</li>
-                            <li>Các trường bắt buộc: Ngày, Ca, Tên máy, Sản phẩm, Ra máy, Chính phẩm, Phế phẩm</li>
-                            <li>Tải tệp đã điền dữ liệu lên hệ thống</li>
-                        </ol>
-                        <p><strong>Lưu ý:</strong></p>
-                        <ul>
-                            <li>Ngày tháng nhập theo định dạng DD/MM/YYYY (ngày/tháng/năm)</li>
-                            <li>Mã ca: CA1, CA2, CA3</li>
-                            <li>Tên máy phải khớp với danh sách máy trong hệ thống</li>
-                            <li>Mã sản phẩm phải tồn tại trong hệ thống</li>
-                            <li>Cột "Số m" dùng để nhập chiều dài thực tế của sản phẩm (mét)</li>
-                            <li>Nếu không nhập "Số m", hệ thống sẽ sử dụng chiều dài tiêu chuẩn theo loại sản phẩm</li>
+                        <h6><i class="fas fa-info-circle"></i> Hướng dẫn import thành công:</h6>
+                        <ul class="mb-0">
+                            <li><strong>Tải template:</strong> Nhấn nút "Tải mẫu Excel" để có file mẫu chuẩn</li>
+                            <li><strong>Định dạng ngày:</strong> <span class="text-danger">MỤC QUAN TRỌNG NHẤT!</span> Nhập ngày theo dạng <code>dd/mm/yyyy</code> (ví dụ: <code>25/12/2024</code>)</li>
+                            <li><strong>Tên máy:</strong> Phải khớp chính xác với tên máy trong hệ thống (hoặc chỉ nhập một ký tự như "A", "B")</li>
+                            <li><strong>Mã sản phẩm:</strong> Phải khớp với mã sản phẩm đã tạo</li>
+                            <li><strong>Số liệu:</strong> Có thể dùng dấu phẩy hoặc chấm làm dấu thập phân</li>
                         </ul>
+                    </div>
+
+                    <!-- Troubleshooting nhấn mạnh ngày tháng -->
+                    <div class="alert alert-warning">
+                        <h6><i class="fas fa-exclamation-triangle"></i> Lỗi thường gặp khi import từ máy khách khác nhau:</h6>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <strong><i class="fas fa-calendar-alt text-danger"></i> NGÀY THÁNG (90% nguyên nhân lỗi):</strong>
+                                <div class="ml-3">
+                                    <div class="text-success">✓ Đúng: <code>25/12/2024</code>, <code>01/01/2025</code>, <code>5/3/2024</code></div>
+                                    <div class="text-danger">✗ Sai: <code>12-25-2024</code>, <code>2024/12/25</code>, <code>Dec 25, 2024</code></div>
+                                    <small class="text-muted">
+                                        • Luôn dùng định dạng <strong>ngày/tháng/năm</strong><br>
+                                        • Có thể dùng dấu <code>/</code>, <code>-</code> hoặc <code>.</code><br>
+                                        • Hệ thống tự động nhận diện Excel date number
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Khắc phục từ máy khách:</strong>
+                                <ul class="small">
+                                    <li>Đảm bảo file Excel được lưu đúng định dạng (.xlsx)</li>
+                                    <li>Kiểm tra Regional Settings: Control Panel → Region → Short date: dd/MM/yyyy</li>
+                                    <li>Trong Excel: Format Cells → Date → Type: 14/03/2012</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Lỗi khác:</strong>
+                                <ul class="small">
+                                    <li>Tên máy: <span class="text-success">Máy đùn A</span> ✓ hoặc chỉ <span class="text-success">A</span> ✓</li>
+                                    <li>Encoding: Lưu file với UTF-8 encoding</li>
+                                    <li>Số liệu: <span class="text-success">1.234,56</span> hoặc <span class="text-success">1234.56</span> ✓</li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group">
                         <label for="excel_file">Chọn file Excel</label>
                         <input type="file" class="form-control-file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.csv" required>
-                        <small class="form-text text-muted">Chỉ hỗ trợ file .xlsx, .xls, .csv</small>
+                        <small class="form-text text-muted">Chỉ hỗ trợ file .xlsx, .xls, .csv. Kích thước tối đa: 10MB</small>
                     </div>
+
+                    <!-- Thông tin debug cho admin -->
+                    @if(auth()->user()->hasRole('admin'))
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <a data-toggle="collapse" href="#debugInfo" role="button" aria-expanded="false">
+                                    <i class="fas fa-tools"></i> Thông tin debug (Admin only)
+                                </a>
+                            </h6>
+                        </div>
+                        <div class="collapse" id="debugInfo">
+                            <div class="card-body">
+                                <p><strong>Máy trong hệ thống:</strong></p>
+                                <div class="row">
+                                    @foreach(\App\Models\Machine::all() as $machine)
+                                    <div class="col-md-4">
+                                        <code>{{ $machine->name }}</code>
+                                    </div>
+                                    @endforeach
+                                </div>
+                                <hr>
+                                <p><strong>Sản phẩm mẫu:</strong></p>
+                                <div class="row">
+                                    @foreach(\App\Models\Product::take(6)->get() as $product)
+                                    <div class="col-md-4">
+                                        <code>{{ $product->code }}</code>
+                                    </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
                 </div>
                 <div class="modal-footer">
+                    <a href="{{ route('plc.production.entries.download-template') }}" class="btn btn-info mr-auto">
+                        <i class="fas fa-download"></i> Tải mẫu Excel
+                    </a>
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Đóng</button>
                     <button type="submit" class="btn btn-primary" id="importButton">
                         <i class="fas fa-upload"></i> Import

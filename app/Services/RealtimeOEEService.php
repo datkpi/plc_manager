@@ -549,85 +549,253 @@ class RealtimeOEEService
 
     /**
      * Tính actual_quantity từ tốc độ thực tế dàn kéo, gộp các ca của cùng sản phẩm
+     * Logic mới: Nếu không tìm thấy VX<50 trong ca hiện tại thì tìm tiếp ở ca trước
+     * và cộng dồn toàn bộ giờ chạy cuối cùng của các ca đã kết thúc
      */
     protected function calculateActualQuantity($machineId, $currentProduct, $now)
     {
-        // Xác định ca hiện tại và thời điểm bắt đầu tìm kiếm
+        \Log::info("=== TÍNH ACTUAL QUANTITY - LOGIC MỚI ===");
+        \Log::info("Máy: $machineId, Sản phẩm: $currentProduct");
+        \Log::info("Thời điểm hiện tại: " . $now->format('Y-m-d H:i:s'));
+
         $currentShift = $this->getCurrentShift($now);
-        $searchStartTime = null;
+        \Log::info("Ca hiện tại: $currentShift");
 
-        // Nếu là CA1, tìm từ CA3 ngày hôm trước
-        if ($currentShift === 'CA1') {
-            $searchStartTime = $now->copy()->subDay()->setTime(22, 0, 0);
-        }
-        // Nếu là CA2, tìm từ CA1 cùng ngày
-        else if ($currentShift === 'CA2') {
-            $searchStartTime = $now->copy()->setTime(6, 0, 0);
-        }
-        // Nếu là CA3
-        else {
-            // Nếu trước 6h sáng, tìm từ CA3 ngày hôm trước
-            if ($now->format('H:i:s') < '06:00:00') {
-                $searchStartTime = $now->copy()->subDay()->setTime(22, 0, 0);
-            } else {
-                // Sau 6h sáng, tìm từ CA2 cùng ngày
-                $searchStartTime = $now->copy()->setTime(14, 0, 0);
-            }
-        }
+        $totalRunTime = 0;
 
-        \Log::info("Calculating actual quantity from " . $searchStartTime->format('Y-m-d H:i:s') . 
-                  " to " . $now->format('Y-m-d H:i:s') . 
-                  " for product " . $currentProduct);
-
-        // Lấy bản ghi cuối cùng của ca hiện tại
-        $currentShiftRecord = PlcData::where('machine_id', $machineId)
+        // Bước 1: Lấy giờ chạy hiện tại
+        $currentRecord = PlcData::where('machine_id', $machineId)
             ->where('created_at', '<=', $now)
             ->where('datalog_data_ma_sp', $currentProduct)
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$currentShiftRecord) {
-            \Log::info("No records found for current shift");
+        if (!$currentRecord) {
+            \Log::info("Không tìm thấy bản ghi hiện tại");
             return 0;
         }
 
-        // Lấy tất cả các ca trước đó
-        $previousShifts = PlcData::where('machine_id', $machineId)
-            ->where('created_at', '>=', $searchStartTime)
-            ->where('created_at', '<', $now)
-            ->where('datalog_data_ma_sp', $currentProduct)
-            ->orderBy('created_at', 'asc')
-            ->get()
-            ->groupBy(function($record) {
-                return Carbon::parse($record->created_at)->format('Y-m-d H');
-            });
+        $currentRunTime = $currentRecord->datalog_data_gio_chay_2;
+        \Log::info("Giờ chạy hiện tại: $currentRunTime phút");
 
-        // Tính tổng giờ chạy 2
-        $totalRunTime = $currentShiftRecord->datalog_data_gio_chay_2;
-        
-        \Log::info("=== RUNNING TIME CALCULATION ===");
-        \Log::info("Current shift record:" .
-            "\nID: " . $currentShiftRecord->id .
-            "\nCreated at: " . $currentShiftRecord->created_at .
-            "\nGiờ chạy 2: " . $currentShiftRecord->datalog_data_gio_chay_2 .
-            "\nTốc độ VX: " . $currentShiftRecord->toc_do_thuc_te_vx);
+        // Bước 2: Tìm điểm bắt đầu sản xuất (VX<50) trong ca hiện tại
+        $currentShiftStart = $this->getShiftStartTime($now, $currentShift);
+        $startPointInCurrentShift = $this->findProductionStartPointInShift($machineId, $currentProduct, $currentShiftStart, $now);
 
-        // Cộng dồn giờ chạy 2 từ các ca trước
-        foreach ($previousShifts as $hour => $records) {
-            // Lấy bản ghi cuối cùng của mỗi ca
-            $lastRecord = $records->last();
+        if ($startPointInCurrentShift) {
+            // Tìm thấy điểm VX<50 trong ca hiện tại
+            $currentShiftRunTime = $currentRunTime - $startPointInCurrentShift->datalog_data_gio_chay_2;
+            $totalRunTime = max(0, $currentShiftRunTime);
+            \Log::info("Tìm thấy điểm bắt đầu trong ca hiện tại");
+            \Log::info("Giờ chạy ca hiện tại: $currentRunTime - {$startPointInCurrentShift->datalog_data_gio_chay_2} = $currentShiftRunTime");
+        } else {
+            // Không tìm thấy điểm VX<50 trong ca hiện tại → tìm ở ca trước và cộng dồn
+            \Log::info("Không tìm thấy điểm bắt đầu trong ca hiện tại → tìm ở ca trước");
             
-            \Log::info("Previous shift at $hour:" .
-                "\nID: " . $lastRecord->id .
-                "\nCreated at: " . $lastRecord->created_at .
-                "\nGiờ chạy 2: " . $lastRecord->datalog_data_gio_chay_2 .
-                "\nTốc độ VX: " . $lastRecord->toc_do_thuc_te_vx);
-            
-            $totalRunTime += $lastRecord->datalog_data_gio_chay_2;
+            // Thêm giờ chạy hiện tại
+            $totalRunTime = $currentRunTime;
+            \Log::info("Giờ chạy ca hiện tại: $currentRunTime phút");
+
+            // Tìm và cộng dồn các ca trước đó
+            $totalRunTime += $this->findAndAccumulatePreviousShifts($machineId, $currentProduct, $now, $currentShift);
         }
 
-        \Log::info("Total run time after adding all shifts: " . $totalRunTime);
-
+        \Log::info("TỔNG CỘNG ACTUAL QUANTITY: $totalRunTime phút");
         return max(0, $totalRunTime);
+    }
+
+    /**
+     * Tìm và cộng dồn giờ chạy từ các ca trước đó cho đến khi tìm thấy điểm bắt đầu
+     */
+    private function findAndAccumulatePreviousShifts($machineId, $currentProduct, $now, $currentShift)
+    {
+        \Log::info("=== TÌM VÀ CỘNG DỒN CÁC CA TRƯỚC ===");
+        
+        $totalFromPreviousShifts = 0;
+        $searchLimit = 7; // Giới hạn tìm kiếm 7 ngày
+        $foundStartPoint = false;
+
+        // Lấy danh sách các ca trước đó theo thứ tự
+        $shiftsToSearch = $this->getPreviousShiftsInOrder($currentShift, $now, $searchLimit);
+
+        foreach ($shiftsToSearch as $shiftInfo) {
+            \Log::info("Kiểm tra ca {$shiftInfo['shift']} ngày {$shiftInfo['date']}");
+
+            // Tìm giờ chạy cuối cùng của ca này
+            $finalRecord = PlcData::where('machine_id', $machineId)
+                ->where('datalog_data_ma_sp', $currentProduct)
+                ->where('datalog_data_ca', $shiftInfo['shift'])
+                ->whereDate('datalog_date', $shiftInfo['date'])
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if (!$finalRecord) {
+                \Log::info("Không có dữ liệu cho ca {$shiftInfo['shift']}");
+                continue;
+            }
+
+            // Tìm điểm bắt đầu sản xuất trong ca này
+            $shiftStartTime = $this->getShiftStartTimeForDate($shiftInfo['date'], $shiftInfo['shift']);
+            $shiftEndTime = $this->getShiftEndTimeForDate($shiftInfo['date'], $shiftInfo['shift']);
+            
+            $startPointInThisShift = $this->findProductionStartPointInShift(
+                $machineId, 
+                $currentProduct, 
+                $shiftStartTime, 
+                $shiftEndTime
+            );
+
+            if ($startPointInThisShift) {
+                // Tìm thấy điểm bắt đầu trong ca này
+                $shiftRunTime = $finalRecord->datalog_data_gio_chay_2 - $startPointInThisShift->datalog_data_gio_chay_2;
+                $totalFromPreviousShifts += max(0, $shiftRunTime);
+                \Log::info("Ca {$shiftInfo['shift']}: Tìm thấy điểm bắt đầu. Giờ chạy = {$finalRecord->datalog_data_gio_chay_2} - {$startPointInThisShift->datalog_data_gio_chay_2} = $shiftRunTime");
+                $foundStartPoint = true;
+                break;
+            } else {
+                // Không tìm thấy điểm bắt đầu, lấy toàn bộ giờ chạy cuối cùng
+                $shiftRunTime = $finalRecord->datalog_data_gio_chay_2;
+                $totalFromPreviousShifts += $shiftRunTime;
+                \Log::info("Ca {$shiftInfo['shift']}: Không tìm thấy điểm bắt đầu. Lấy toàn bộ giờ chạy = $shiftRunTime");
+            }
+        }
+
+        if (!$foundStartPoint) {
+            \Log::warning("Không tìm thấy điểm bắt đầu sản xuất trong $searchLimit ngày");
+        }
+
+        \Log::info("Tổng giờ chạy từ các ca trước: $totalFromPreviousShifts phút");
+        return $totalFromPreviousShifts;
+    }
+
+    /**
+     * Lấy danh sách các ca trước đó theo thứ tự ngược
+     */
+    private function getPreviousShiftsInOrder($currentShift, $now, $searchLimit)
+    {
+        $shifts = [];
+        $currentDate = $now->format('Y-m-d');
+        
+        // Xác định ca trước đó
+        $shiftOrder = ['CA1', 'CA2', 'CA3'];
+        $currentShiftIndex = array_search($currentShift, $shiftOrder);
+        
+        $searchDate = Carbon::parse($currentDate);
+        $daysSearched = 0;
+
+        while ($daysSearched < $searchLimit) {
+            for ($i = $currentShiftIndex - 1; $i >= 0; $i--) {
+                $shifts[] = [
+                    'shift' => $shiftOrder[$i],
+                    'date' => $searchDate->format('Y-m-d')
+                ];
+            }
+            
+            // Chuyển sang ngày trước đó
+            $searchDate->subDay();
+            $daysSearched++;
+            $currentShiftIndex = 3; // Reset để lấy tất cả 3 ca của ngày trước
+            
+            // Thêm các ca của ngày trước đó
+            for ($i = 2; $i >= 0; $i--) {
+                $shifts[] = [
+                    'shift' => $shiftOrder[$i],
+                    'date' => $searchDate->format('Y-m-d')
+                ];
+            }
+        }
+
+        \Log::info("Danh sách ca cần tìm: " . json_encode(array_slice($shifts, 0, 10))); // Log 10 ca đầu
+        return $shifts;
+    }
+
+    /**
+     * Lấy thời điểm bắt đầu ca cho ngày cụ thể
+     */
+    private function getShiftStartTimeForDate($date, $shift)
+    {
+        $baseDate = Carbon::parse($date);
+        
+        switch ($shift) {
+            case 'CA1':
+                return $baseDate->setTime(6, 0, 0);
+            case 'CA2':
+                return $baseDate->setTime(14, 0, 0);
+            case 'CA3':
+                return $baseDate->setTime(22, 0, 0);
+        }
+    }
+
+    /**
+     * Lấy thời điểm kết thúc ca cho ngày cụ thể
+     */
+    private function getShiftEndTimeForDate($date, $shift)
+    {
+        $baseDate = Carbon::parse($date);
+        
+        switch ($shift) {
+            case 'CA1':
+                return $baseDate->setTime(14, 0, 0);
+            case 'CA2':
+                return $baseDate->setTime(22, 0, 0);
+            case 'CA3':
+                return $baseDate->addDay()->setTime(6, 0, 0);
+        }
+    }
+
+    /**
+     * Tìm điểm bắt đầu sản xuất trong ca hiện tại
+     */
+    private function findProductionStartPointInShift($machineId, $currentProduct, $shiftStartTime, $now)
+    {
+        \Log::info("Tìm điểm bắt đầu sản xuất trong ca từ " . $shiftStartTime->format('Y-m-d H:i:s'));
+
+        // Lấy tất cả bản ghi trong ca hiện tại, sắp xếp ngược thời gian
+        $records = PlcData::where('machine_id', $machineId)
+            ->where('created_at', '>=', $shiftStartTime)
+            ->where('created_at', '<=', $now)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        if ($records->isEmpty()) {
+            \Log::info("Không có bản ghi nào trong ca hiện tại");
+            return null;
+        }
+
+        $startPoint = null;
+        $foundCurrentProduct = false;
+
+        foreach ($records as $record) {
+            \Log::info("Kiểm tra: ID {$record->id}, SP: {$record->datalog_data_ma_sp}, VX: {$record->toc_do_thuc_te_vx}");
+
+            // Tìm sản phẩm hiện tại
+            if (!$foundCurrentProduct) {
+                if ($record->datalog_data_ma_sp === $currentProduct) {
+                    $foundCurrentProduct = true;
+                    \Log::info("Tìm thấy sản phẩm hiện tại");
+                }
+                continue;
+            }
+
+            // Kiểm tra điều kiện dừng
+            if ($record->datalog_data_ma_sp !== $currentProduct) {
+                \Log::info("Gặp sản phẩm khác: {$record->datalog_data_ma_sp} -> Dừng");
+                break;
+            }
+
+            if ($record->toc_do_thuc_te_vx < 50) {
+                \Log::info("Gặp VX < 50: {$record->toc_do_thuc_te_vx} -> Điểm bắt đầu");
+                $startPoint = $record;
+                break;
+            }
+
+            $startPoint = $record;
+        }
+
+        if ($startPoint) {
+            \Log::info("Điểm bắt đầu trong ca: ID {$startPoint->id}, Giờ chạy: {$startPoint->datalog_data_gio_chay_2}");
+        }
+
+        return $startPoint;
     }
 } 

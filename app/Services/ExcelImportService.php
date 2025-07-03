@@ -21,16 +21,71 @@ class ExcelImportService
         try {
             Log::info('Bắt đầu import file: ' . $filePath);
             
-            // Đọc file Excel
-            $spreadsheet = IOFactory::load($filePath);
+            // Kiểm tra file tồn tại
+            if (!file_exists($filePath)) {
+                throw new \Exception("File không tồn tại: {$filePath}");
+            }
+            
+            // Log thông tin về file
+            Log::info('Thông tin file: ' . json_encode([
+                'size' => filesize($filePath),
+                'mime_type' => mime_content_type($filePath),
+                'readable' => is_readable($filePath)
+            ]));
+            
+            // Đọc file Excel với xử lý encoding
+            $inputFileType = \PhpOffice\PhpSpreadsheet\IOFactory::identify($filePath);
+            Log::info("Loại file được nhận diện: {$inputFileType}");
+            
+            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader($inputFileType);
+            
+            // Cấu hình reader để xử lý tốt hơn các file từ máy khác nhau
+            if ($inputFileType === 'Xlsx' || $inputFileType === 'Xls') {
+                $reader->setReadDataOnly(true);
+                $reader->setReadEmptyCells(false);
+            }
+            
+            $spreadsheet = $reader->load($filePath);
             $worksheet = $spreadsheet->getActiveSheet();
-            $rows = $worksheet->toArray();
+            
+            // Lấy dữ liệu với cách xử lý an toàn hơn
+            $highestRow = $worksheet->getHighestDataRow();
+            $highestColumn = $worksheet->getHighestDataColumn();
+            
+            Log::info("Phạm vi dữ liệu: A1:{$highestColumn}{$highestRow}");
+            
+            $rows = [];
+            for ($row = 1; $row <= $highestRow; $row++) {
+                $rowData = [];
+                for ($col = 'A'; $col <= $highestColumn; $col++) {
+                    $cellValue = $worksheet->getCell($col . $row)->getCalculatedValue();
+                    
+                    // Xử lý encoding cho text
+                    if (is_string($cellValue)) {
+                        // Chuẩn hóa encoding
+                        if (!mb_check_encoding($cellValue, 'UTF-8')) {
+                            $cellValue = mb_convert_encoding($cellValue, 'UTF-8', 'auto');
+                        }
+                        
+                        // Loại bỏ các ký tự không mong muốn
+                        $cellValue = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $cellValue);
+                        $cellValue = trim($cellValue);
+                    }
+                    
+                    $rowData[] = $cellValue;
+                }
+                $rows[] = $rowData;
+            }
             
             Log::info('Đã đọc file Excel thành công. Số dòng: ' . count($rows));
 
-            // Log chi tiết từng dòng dữ liệu gốc
-            foreach ($rows as $index => $row) {
+            // Log chi tiết từng dòng dữ liệu gốc (chỉ log 10 dòng đầu để tránh spam log)
+            foreach (array_slice($rows, 0, 10) as $index => $row) {
                 Log::info("Dữ liệu gốc dòng " . ($index + 1) . ": " . json_encode($row, JSON_UNESCAPED_UNICODE));
+            }
+            
+            if (count($rows) > 10) {
+                Log::info("... và " . (count($rows) - 10) . " dòng khác");
             }
 
             // Bỏ qua dòng tiêu đề và các dòng rỗng
@@ -92,30 +147,40 @@ class ExcelImportService
                     // Số dòng trong file Excel = index + 2 (vì bỏ qua dòng tiêu đề và index bắt đầu từ 0)
                     $rowNumber = $rowIndex + 2;
 
+                    // Chuẩn hóa dữ liệu trước khi xử lý
+                    $row = array_map(function($cell) {
+                        if (is_string($cell)) {
+                            // Chuẩn hóa encoding và loại bỏ ký tự đặc biệt
+                            $cell = trim($cell);
+                            $cell = preg_replace('/\s+/', ' ', $cell); // Chuẩn hóa khoảng trắng
+                        }
+                        return $cell;
+                    }, $row);
+
                     // Map dữ liệu theo cột biểu mẫu thực tế từ file Excel được upload
-                    $date = $this->parseDate($row[0]); // Cột A: Ngày
-                    $shift = $row[1]; // Cột B: Ca
+                    $date = $this->parseDate($row[0] ?? ''); // Cột A: Ngày
+                    $shift = $row[1] ?? ''; // Cột B: Ca
                     
                     // Chuyển đổi ca từ số (1, 2, 3) sang chuỗi (CA1, CA2, CA3)
                     if (is_numeric($shift)) {
                         $shift = 'CA' . $shift;
                     }
                     
-                    $machineName = $row[2]; // Cột C: Tên máy
-                    $operatorName = $row[3]; // Cột D: Tên công nhân vận hành
-                    $operatorTeam = $row[4]; // Cột E: Tổ
-                    $productCode = $row[5]; // Cột F: Sản phẩm
-                    $productLength = is_numeric($row[6]) ? (float)$row[6] : null; // Cột G: Số m
-                    $runQuantity = is_numeric($row[7]) ? (float)$row[7] : 0; // Cột H: Ra máy (cây/cuộn)
-                    $goodQuantity = is_numeric($row[8]) ? (float)$row[8] : 0; // Cột I: Chính phẩm (cây/cuộn)
-                    $defectWeight = is_numeric($row[9]) ? (float)$row[9] : 0; // Cột J: Phế phẩm (kg)
-                    $wasteWeight = is_numeric($row[10]) ? (float)$row[10] : 0; // Cột K: Phế liệu (kg)
-                    $machineOperator = $row[11]; // Cột L: CN chạy máy
-                    $qualityInspector = $row[12]; // Cột M: CN kiểm
-                    $warehouseStaff = $row[13]; // Cột N: CN kho
+                    $machineName = $this->cleanMachineName($row[2] ?? ''); // Cột C: Tên máy
+                    $operatorName = $row[3] ?? ''; // Cột D: Tên công nhân vận hành
+                    $operatorTeam = $row[4] ?? ''; // Cột E: Tổ
+                    $productCode = $this->cleanProductCode($row[5] ?? ''); // Cột F: Sản phẩm
+                    $productLength = $this->parseNumeric($row[6] ?? null); // Cột G: Số m
+                    $runQuantity = $this->parseNumeric($row[7] ?? 0); // Cột H: Ra máy (cây/cuộn)
+                    $goodQuantity = $this->parseNumeric($row[8] ?? 0); // Cột I: Chính phẩm (cây/cuộn)
+                    $defectWeight = $this->parseNumeric($row[9] ?? 0); // Cột J: Phế phẩm (kg)
+                    $wasteWeight = $this->parseNumeric($row[10] ?? 0); // Cột K: Phế liệu (kg)
+                    $machineOperator = $row[11] ?? ''; // Cột L: CN chạy máy
+                    $qualityInspector = $row[12] ?? ''; // Cột M: CN kiểm
+                    $warehouseStaff = $row[13] ?? ''; // Cột N: CN kho
                     $notes = $row[14] ?? ''; // Cột O: Ghi chú
 
-                    // Kiểm tra dữ liệu bắt buộc
+                    // Kiểm tra dữ liệu bắt buộc với thông báo chi tiết
                     if (empty($date)) {
                         throw new \Exception("Ngày không được để trống");
                     }
@@ -129,13 +194,13 @@ class ExcelImportService
                         throw new \Exception("Sản phẩm không được để trống");
                     }
                     if ($runQuantity <= 0) {
-                        throw new \Exception("Số lượng ra máy phải lớn hơn 0");
+                        throw new \Exception("Số lượng ra máy phải lớn hơn 0, nhận được: {$runQuantity}");
                     }
                     if ($goodQuantity < 0) {
-                        throw new \Exception("Số lượng chính phẩm không được âm");
+                        throw new \Exception("Số lượng chính phẩm không được âm, nhận được: {$goodQuantity}");
                     }
                     if ($defectWeight < 0) {
-                        throw new \Exception("Khối lượng phế phẩm không được âm");
+                        throw new \Exception("Khối lượng phế phẩm không được âm, nhận được: {$defectWeight}");
                     }
 
                     // Tính số lượng lỗi từ số lượng
@@ -278,65 +343,198 @@ class ExcelImportService
 
         try {
             // Log để debug
-            Log::info("Đang xử lý ngày từ Excel: " . $dateString);
+            Log::info("Đang xử lý ngày từ Excel: " . json_encode($dateString) . " (type: " . gettype($dateString) . ")");
             
-            // Kiểm tra nếu là dạng Excel numeric date
-            if (is_numeric($dateString)) {
-                $unixDate = ($dateString - 25569) * 86400;
-                $date = Carbon::createFromTimestamp($unixDate);
-                Log::info("Chuyển đổi Excel numeric date thành: " . $date->format('Y-m-d'));
-                return $date->format('Y-m-d');
+            // Xử lý encoding nếu là string
+            if (is_string($dateString)) {
+                if (!mb_check_encoding($dateString, 'UTF-8')) {
+                    $dateString = mb_convert_encoding($dateString, 'UTF-8', 'auto');
+                }
+                $dateString = trim($dateString);
+                
+                // Loại bỏ ký tự BOM và các ký tự ẩn
+                $dateString = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\xEF\xBB\xBF]/', '', $dateString);
             }
             
-            // Chuẩn hóa định dạng ngày
-            if (is_string($dateString)) {
-                // Xử lý định dạng dd/mm/y hoặc dd/mm/Y hoặc mm/dd/y hoặc mm/dd/Y từ Excel
-                if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/', $dateString, $matches)) {
-                    $firstNumber = (int)$matches[1];
-                    $secondNumber = (int)$matches[2];
-                    $year = (int)$matches[3];
-                    
-                    // Xử lý năm 2 chữ số
-                    if ($year < 100) {
-                        $year += 2000; // Chuyển '25' thành '2025'
-                    }
-
-                    // Kiểm tra năm hợp lệ
-                    $currentYear = (int)date('Y');
-                    if ($year > $currentYear) {
-                        throw new \Exception("Năm không được lớn hơn năm hiện tại: {$year}");
-                    }
-
-                    // Thử cả hai trường hợp: dd/mm và mm/dd
-                    $possibleDates = [
-                        // Trường hợp 1: firstNumber là ngày
-                        ['day' => $firstNumber, 'month' => $secondNumber],
-                        // Trường hợp 2: firstNumber là tháng
-                        ['day' => $secondNumber, 'month' => $firstNumber]
-                    ];
-
-                    foreach ($possibleDates as $dateAttempt) {
-                        if (checkdate($dateAttempt['month'], $dateAttempt['day'], $year)) {
-                            // Chuẩn hóa về định dạng Y-m-d
-                            $formattedDate = sprintf('%04d-%02d-%02d', $year, $dateAttempt['month'], $dateAttempt['day']);
-                            Log::info("Chuyển đổi ngày {$dateString} thành: " . $formattedDate);
-                            return $formattedDate;
+            // Kiểm tra nếu là dạng Excel numeric date (serial number)
+            if (is_numeric($dateString)) {
+                $numericDate = (float)$dateString;
+                Log::info("Phát hiện số Excel: {$numericDate}");
+                
+                // Excel date serial numbers thường nằm trong khoảng hợp lý
+                // Excel dates start from 1 (1900-01-01) to ~73000 (2100)
+                if ($numericDate >= 1 && $numericDate <= 80000) {
+                    try {
+                        // Sử dụng PhpSpreadsheet để chuyển đổi Excel date chính xác
+                        $excelBaseDate = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($numericDate);
+                        if ($excelBaseDate) {
+                            $formattedDate = $excelBaseDate->format('Y-m-d');
+                            Log::info("Chuyển đổi Excel numeric date {$numericDate} thành: " . $formattedDate);
+                            
+                            // Kiểm tra năm hợp lý (1900-2100)
+                            $year = (int)$excelBaseDate->format('Y');
+                            if ($year >= 1900 && $year <= 2100) {
+                                return $formattedDate;
+                            }
                         }
+                    } catch (\Exception $e) {
+                        Log::warning("Lỗi chuyển đổi Excel date với PhpSpreadsheet: " . $e->getMessage());
                     }
-
-                    // Nếu không có trường hợp nào hợp lệ
-                    throw new \Exception("Ngày tháng không hợp lệ: {$dateString}");
+                    
+                    // Fallback: Tính toán thủ công
+                    // Excel epoch bắt đầu từ 1900-01-01, nhưng có bug leap year
+                    // Formula: Unix timestamp = (Excel date - 25569) * 86400
+                    $unixDate = ($numericDate - 25569) * 86400;
+                    
+                    // Kiểm tra tính hợp lệ của timestamp
+                    if ($unixDate > 0 && $unixDate < 4102444800) { // Không quá năm 2100
+                        $date = Carbon::createFromTimestamp($unixDate);
+                        $formattedDate = $date->format('Y-m-d');
+                        Log::info("Fallback: Chuyển đổi Excel numeric date {$numericDate} thành: " . $formattedDate);
+                        return $formattedDate;
+                    }
+                }
+                
+                // Nếu không phải Excel date, có thể là timestamp Unix
+                if ($numericDate >= 946684800 && $numericDate <= 4102444800) { // 2000-2100
+                    $date = Carbon::createFromTimestamp($numericDate);
+                    $formattedDate = $date->format('Y-m-d');
+                    Log::info("Chuyển đổi Unix timestamp {$numericDate} thành: " . $formattedDate);
+                    return $formattedDate;
                 }
             }
             
-            // Thử parse với Carbon với các định dạng khác nhau
-            $formats = ['d/m/Y', 'm/d/Y'];
+            // Chuẩn hóa định dạng ngày cho string
+            if (is_string($dateString)) {
+                // Loại bỏ các ký tự không cần thiết, giữ lại số, dấu /, -, .
+                $cleanDate = preg_replace('/[^\d\/\-\.\s]/', '', $dateString);
+                $cleanDate = trim($cleanDate);
+                Log::info("Ngày sau khi làm sạch: '{$cleanDate}'");
+                
+                // Nếu chuỗi trống sau khi làm sạch
+                if (empty($cleanDate)) {
+                    throw new \Exception("Ngày không có dữ liệu hợp lệ sau khi làm sạch");
+                }
+                
+                // Xử lý các định dạng phổ biến từ Excel
+                // 1. dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy
+                // 2. mm/dd/yyyy, mm-dd-yyyy, mm.dd.yyyy  
+                // 3. yyyy/mm/dd, yyyy-mm-dd, yyyy.mm.dd
+                
+                $patterns = [
+                    // Pattern cho dd/mm/yyyy hoặc mm/dd/yyyy
+                    '/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/',
+                    // Pattern cho yyyy/mm/dd
+                    '/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/',
+                    // Pattern cho d/m/yyyy (single digit)
+                    '/^(\d{1})[\/\-\.](\d{1})[\/\-\.](\d{2,4})$/',
+                ];
+                
+                foreach ($patterns as $pattern) {
+                    if (preg_match($pattern, $cleanDate, $matches)) {
+                        Log::info("Khớp pattern: " . $pattern . " với matches: " . json_encode($matches));
+                        
+                        $part1 = (int)$matches[1];
+                        $part2 = (int)$matches[2];
+                        $part3 = (int)$matches[3];
+                        
+                        // Xác định năm
+                        if ($part3 > 31) {
+                            // yyyy/mm/dd format
+                            $year = $part3;
+                            $month = $part1;
+                            $day = $part2;
+                            $detectedFormat = 'yyyy/mm/dd';
+                        } else if ($part1 > 31) {
+                            // yyyy/mm/dd format 
+                            $year = $part1;
+                            $month = $part2;
+                            $day = $part3;
+                            $detectedFormat = 'yyyy/mm/dd';
+                        } else {
+                            // dd/mm/yyyy hoặc mm/dd/yyyy format
+                            $year = $part3;
+                            
+                            // Xử lý năm 2 chữ số
+                            if ($year < 100) {
+                                if ($year <= 30) {
+                                    $year += 2000; // 00-30 -> 2000-2030
+                                } else {
+                                    $year += 1900; // 31-99 -> 1931-1999
+                                }
+                            }
+                            
+                            // Thử cả hai trường hợp: dd/mm và mm/dd
+                            $possibleDates = [];
+                            
+                            // Trường hợp 1: part1 là ngày (dd/mm/yyyy)
+                            if ($part1 >= 1 && $part1 <= 31 && $part2 >= 1 && $part2 <= 12) {
+                                $possibleDates[] = ['day' => $part1, 'month' => $part2, 'format' => 'dd/mm/yyyy'];
+                            }
+                            
+                            // Trường hợp 2: part1 là tháng (mm/dd/yyyy) 
+                            if ($part1 >= 1 && $part1 <= 12 && $part2 >= 1 && $part2 <= 31) {
+                                $possibleDates[] = ['day' => $part2, 'month' => $part1, 'format' => 'mm/dd/yyyy'];
+                            }
+                            
+                            // Ưu tiên dd/mm/yyyy (định dạng Việt Nam)
+                            usort($possibleDates, function($a, $b) {
+                                return $a['format'] === 'dd/mm/yyyy' ? -1 : 1;
+                            });
+                            
+                            foreach ($possibleDates as $dateAttempt) {
+                                if (checkdate($dateAttempt['month'], $dateAttempt['day'], $year)) {
+                                    $day = $dateAttempt['day'];
+                                    $month = $dateAttempt['month'];
+                                    $detectedFormat = $dateAttempt['format'];
+                                    break;
+                                }
+                            }
+                            
+                            if (!isset($day) || !isset($month)) {
+                                Log::warning("Không thể xác định ngày/tháng hợp lệ từ: {$cleanDate}");
+                                continue; // Thử pattern tiếp theo
+                            }
+                        }
+                        
+                        // Kiểm tra năm hợp lệ
+                        $currentYear = (int)date('Y');
+                        if ($year < 1900 || $year > $currentYear + 5) {
+                            Log::warning("Năm không hợp lệ: {$year}. Phải từ 1900 đến " . ($currentYear + 5));
+                            continue;
+                        }
+                        
+                        // Kiểm tra ngày tháng hợp lệ
+                        if (checkdate($month, $day, $year)) {
+                            // Chuẩn hóa về định dạng Y-m-d
+                            $formattedDate = sprintf('%04d-%02d-%02d', $year, $month, $day);
+                            Log::info("Chuyển đổi ngày '{$cleanDate}' thành: {$formattedDate} (định dạng phát hiện: {$detectedFormat})");
+                            return $formattedDate;
+                        } else {
+                            Log::warning("Ngày tháng không hợp lệ: {$day}/{$month}/{$year}");
+                        }
+                    }
+                }
+            }
+            
+            // Thử parse với Carbon với các định dạng khác nhau (fallback)
+            $formats = [
+                'd/m/Y', 'd-m-Y', 'd.m.Y',
+                'm/d/Y', 'm-d-Y', 'm.d.Y', 
+                'Y/m/d', 'Y-m-d', 'Y.m.d',
+                'd/m/y', 'd-m-y', 'd.m.y',
+                'm/d/y', 'm-d-y', 'm.d.y',
+                'j/n/Y', 'j-n-Y', 'j.n.Y', // single digit day/month
+                'n/j/Y', 'n-j-Y', 'n.j.Y'
+            ];
+            
             foreach ($formats as $format) {
                 try {
                     $date = Carbon::createFromFormat($format, $dateString);
-                    if ($date && $date->year <= date('Y')) {
-                        Log::info("Đã parse thành công ngày với định dạng {$format}");
-                        return $date->format('Y-m-d');
+                    if ($date && $date->year >= 1900 && $date->year <= date('Y') + 5) {
+                        $formattedDate = $date->format('Y-m-d');
+                        Log::info("Carbon parse thành công với định dạng {$format}: {$formattedDate}");
+                        return $formattedDate;
                     }
                 } catch (\Exception $e) {
                     continue;
@@ -344,11 +542,11 @@ class ExcelImportService
             }
             
             // Nếu không parse được theo bất kỳ định dạng nào
-            throw new \Exception("Không thể chuyển đổi ngày: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy hoặc mm/dd/yyyy");
+            throw new \Exception("Không thể chuyển đổi ngày: '{$dateString}'. Vui lòng sử dụng định dạng dd/mm/yyyy (ví dụ: 25/12/2024)");
             
         } catch (\Exception $e) {
-            Log::error("Lỗi parse ngày {$dateString}: " . $e->getMessage());
-            throw new \Exception("Ngày không hợp lệ: {$dateString}. Vui lòng nhập theo định dạng dd/mm/yyyy hoặc mm/dd/yyyy");
+            Log::error("Lỗi parse ngày '{$dateString}': " . $e->getMessage());
+            throw new \Exception("Ngày không hợp lệ: '{$dateString}'. " . $e->getMessage());
         }
     }
 
@@ -690,5 +888,109 @@ class ExcelImportService
         
         Log::warning("Không tìm thấy sản phẩm nào với mã '{$productCode}' sau khi thử tất cả các phương pháp");
         return null;
+    }
+
+    /**
+     * Chuẩn hóa tên máy
+     */
+    private function cleanMachineName($name)
+    {
+        if (empty($name)) {
+            return '';
+        }
+        
+        // Chuẩn hóa encoding
+        if (!mb_check_encoding($name, 'UTF-8')) {
+            $name = mb_convert_encoding($name, 'UTF-8', 'auto');
+        }
+        
+        // Loại bỏ ký tự đặc biệt và chuẩn hóa khoảng trắng
+        $name = trim($name);
+        $name = preg_replace('/\s+/', ' ', $name);
+        
+        // Loại bỏ các ký tự không in được
+        $name = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $name);
+        
+        return $name;
+    }
+
+    /**
+     * Chuẩn hóa mã sản phẩm
+     */
+    private function cleanProductCode($code)
+    {
+        if (empty($code)) {
+            return '';
+        }
+        
+        // Chuẩn hóa encoding
+        if (!mb_check_encoding($code, 'UTF-8')) {
+            $code = mb_convert_encoding($code, 'UTF-8', 'auto');
+        }
+        
+        // Loại bỏ ký tự đặc biệt và chuẩn hóa khoảng trắng
+        $code = trim($code);
+        $code = preg_replace('/\s+/', ' ', $code);
+        
+        // Loại bỏ các ký tự không in được
+        $code = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $code);
+        
+        return $code;
+    }
+
+    /**
+     * Parse số từ nhiều định dạng khác nhau
+     */
+    private function parseNumeric($value)
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        
+        if (is_numeric($value)) {
+            return (float)$value;
+        }
+        
+        if (is_string($value)) {
+            // Loại bỏ khoảng trắng
+            $value = trim($value);
+            
+            // Xử lý separator thập phân khác nhau (dấu phẩy vs dấu chấm)
+            // Nếu có cả dấu phẩy và dấu chấm, giả sử dấu cuối là thập phân
+            if (strpos($value, ',') !== false && strpos($value, '.') !== false) {
+                // Trường hợp như "1.234,56" (định dạng Châu Âu)
+                if (strrpos($value, ',') > strrpos($value, '.')) {
+                    $value = str_replace('.', '', $value); // Loại bỏ dấu chấm ngàn
+                    $value = str_replace(',', '.', $value); // Chuyển dấu phẩy thành dấu chấm thập phân
+                } else {
+                    // Trường hợp như "1,234.56" (định dạng Mỹ)
+                    $value = str_replace(',', '', $value); // Loại bỏ dấu phẩy ngàn
+                }
+            } elseif (strpos($value, ',') !== false) {
+                // Chỉ có dấu phẩy - có thể là thập phân hoặc ngàn
+                $commaCount = substr_count($value, ',');
+                if ($commaCount === 1) {
+                    // Kiểm tra xem có phải thập phân không (ít hơn 4 chữ số sau dấu phẩy)
+                    $parts = explode(',', $value);
+                    if (count($parts) === 2 && strlen($parts[1]) <= 3 && is_numeric($parts[1])) {
+                        $value = str_replace(',', '.', $value); // Chuyển thành dấu chấm thập phân
+                    } else {
+                        $value = str_replace(',', '', $value); // Loại bỏ dấu phẩy ngàn
+                    }
+                } else {
+                    $value = str_replace(',', '', $value); // Loại bỏ tất cả dấu phẩy ngàn
+                }
+            }
+            
+            // Loại bỏ các ký tự không phải số
+            $value = preg_replace('/[^\d.-]/', '', $value);
+            
+            if (is_numeric($value)) {
+                return (float)$value;
+            }
+        }
+        
+        Log::warning("Không thể chuyển đổi giá trị thành số: " . json_encode($value));
+        return 0;
     }
 } 
