@@ -134,18 +134,27 @@ class ProductionEntryController extends Controller
 
             $fullPath = Storage::path($filePath);
             
-            // Log thêm thông tin
-            Log::info('Import file: ' . $fileName . ', Path: ' . $filePath . ', Full path: ' . $fullPath);
+            // Log thêm thông tin về hệ thống
+            Log::info('=== SYSTEM INFO ===');
+            Log::info('PHP Version: ' . PHP_VERSION);
+            Log::info('Operating System: ' . PHP_OS);
+            Log::info('Server Software: ' . ($_SERVER['SERVER_SOFTWARE'] ?? 'Unknown'));
+            Log::info('Locale: ' . setlocale(LC_ALL, 0));
+            Log::info('Timezone: ' . date_default_timezone_get());
+            Log::info('Date format: ' . date('Y-m-d H:i:s'));
             
-            // Ghi log toàn bộ thông tin về request
-            Log::info('Request data: ' . json_encode([
-                'file_exists' => file_exists($fullPath),
-                'file_size' => filesize($fullPath),
-                'mime_type' => $file->getMimeType(),
-                'original_name' => $file->getClientOriginalName(),
-            ]));
+            // Log thêm thông tin về file
+            Log::info('=== FILE INFO ===');
+            Log::info('Import file: ' . $fileName);
+            Log::info('File path: ' . $filePath);
+            Log::info('Full path: ' . $fullPath);
+            Log::info('File exists: ' . (file_exists($fullPath) ? 'Yes' : 'No'));
+            Log::info('File size: ' . (file_exists($fullPath) ? filesize($fullPath) : 'N/A') . ' bytes');
+            Log::info('MIME type: ' . $file->getMimeType());
+            Log::info('Original name: ' . $file->getClientOriginalName());
             
             // Log dữ liệu về máy và sản phẩm
+            Log::info('=== DATABASE INFO ===');
             Log::info('Danh sách máy trong hệ thống: ' . Machine::pluck('name')->implode(', '));
             Log::info('Danh sách sản phẩm trong hệ thống: ' . Product::pluck('code')->implode(', '));
             
@@ -173,7 +182,9 @@ class ProductionEntryController extends Controller
                     ->withInput();
             }
         } catch (\Exception $e) {
-            Log::error('Lỗi import excel: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Log::error('=== IMPORT ERROR ===');
+            Log::error('Lỗi import excel: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             return redirect()
                 ->route('plc.production.entries.index')
                 ->withErrors(['excel_file' => 'Có lỗi xảy ra: ' . $e->getMessage()])
