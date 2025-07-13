@@ -17,6 +17,7 @@ class MonthlyOEEReportController extends Controller
      */
     public function index()
     {
+        dd('1');
         $machines = Machine::where('status', 1)->get();
         $year = request('year', Carbon::now()->year);
         $month = request('month', Carbon::now()->month);

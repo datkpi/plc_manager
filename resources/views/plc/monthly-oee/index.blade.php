@@ -21,7 +21,7 @@
                     <td>{{ $oee->machine->name ?? '' }}</td>
                     <td>{{ $oee->year }}</td>
                     <td>{{ $oee->month }}</td>
-                    <td>{{ number_format($oee->unplanned_downtime, 2) }}</td>
+                    <td>{{ number_format($oee->planned_downtime, 2) }}</td>
                     <td>
                         <a href="{{ route('plc.reports.monthly-oee.edit', $oee->id) }}" class="btn btn-primary btn-sm">Sửa</a>
                         <form action="{{ route('plc.reports.monthly-oee.destroy', $oee->id) }}" method="POST" style="display:inline-block;">

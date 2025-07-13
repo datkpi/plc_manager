@@ -46,26 +46,30 @@ class MachineThresholdController extends Controller
            'color' => 'required|string|max:7',
            'show_on_chart' => 'boolean',
            'status' => 'boolean',
+           // Boolean condition
            'use_boolean' => 'nullable|boolean',
            'boolean_value' => 'nullable|boolean',
            'warning_message' => 'nullable|string|max:255',
+           // Range condition
            'use_range' => 'nullable|boolean',
            'min_value' => 'nullable|numeric',
            'max_value' => 'nullable|numeric',
+           // Percent condition
            'use_percent' => 'nullable|boolean',
            'base_value' => 'nullable|numeric',
            'percent' => 'nullable|numeric|min:0|max:100',
+           // Average condition
            'use_avg' => 'nullable|boolean',
            'avg_base_value' => 'nullable|numeric',
-           'avg_percent' => 'nullable|numeric|min:0|max:100'
+           'avg_percent' => 'nullable|numeric|min:0',
+           'operator' => 'nullable|string|in:AND,OR'
        ]);
 
        try {
            // Set default values
            $data['status'] = $request->has('status');
            $data['show_on_chart'] = $request->has('show_on_chart');
-           $data['type'] = 'boolean'; // Mặc định type là boolean
-           $data['operator'] = 'OR'; // Mặc định operator là OR
+           $data['operator'] = $request->input('operator', 'OR');
 
            // Auto set name if empty
            if (empty($data['name'])) {
@@ -79,11 +83,74 @@ class MachineThresholdController extends Controller
                }
            }
 
-           // Process data to create conditions array
-           $data = $this->processThresholdData($data);
+           // Tạo conditions array từ form data
+           $conditions = [];
 
-           // Create threshold
-           MachineThreshold::create($data);
+           // Boolean condition
+           if ($request->has('use_boolean')) {
+               $conditions[] = [
+                   'type' => 'boolean',
+                   'enabled' => true,
+                   'value' => (bool)$request->input('boolean_value', true),
+                   'message' => $request->input('warning_message')
+               ];
+           }
+
+           // Range condition
+           if ($request->has('use_range')) {
+               $condition = [
+                   'type' => 'range',
+                   'enabled' => true,
+                   'message' => 'Cảnh báo vượt ngưỡng min-max'
+               ];
+               
+               if ($request->filled('min_value')) {
+                   $condition['min'] = (float)$request->input('min_value');
+               }
+               
+               if ($request->filled('max_value')) {
+                   $condition['max'] = (float)$request->input('max_value');
+               }
+
+               if (isset($condition['min']) || isset($condition['max'])) {
+                   $conditions[] = $condition;
+               }
+           }
+
+           // Percent condition
+           if ($request->has('use_percent') && $request->filled('base_value') && $request->filled('percent')) {
+               $conditions[] = [
+                   'type' => 'percent',
+                   'enabled' => true,
+                   'base_value' => (float)$request->input('base_value'),
+                   'percent' => (float)$request->input('percent'),
+                   'message' => 'Cảnh báo dao động % so với giá trị cơ sở'
+               ];
+           }
+
+           // Average condition
+           if ($request->has('use_avg') && $request->filled('avg_percent')) {
+               $conditions[] = [
+                   'type' => 'avg',
+                   'enabled' => true,
+                   'percent' => (float)$request->input('avg_percent'),
+                   'message' => 'Cảnh báo dao động so với trung bình 10 phút'
+               ];
+           }
+
+           // Tạo threshold mới
+           $threshold = new MachineThreshold();
+           $threshold->fill([
+               'machine_id' => $data['machine_id'],
+               'plc_data_key' => $data['plc_data_key'],
+               'name' => $data['name'],
+               'color' => $data['color'],
+               'show_on_chart' => $data['show_on_chart'],
+               'status' => $data['status'],
+               'operator' => $data['operator'],
+               'conditions' => $conditions
+           ]);
+           $threshold->save();
 
            return redirect()
                ->route('plc.machine.thresholds.show', $request->machine_id)
@@ -121,38 +188,109 @@ class MachineThresholdController extends Controller
            'color' => 'required|string|max:7',
            'show_on_chart' => 'boolean',
            'status' => 'boolean',
+           // Boolean condition
            'use_boolean' => 'nullable|boolean',
            'boolean_value' => 'nullable|boolean',
            'warning_message' => 'nullable|string|max:255',
+           // Range condition
            'use_range' => 'nullable|boolean',
            'min_value' => 'nullable|numeric',
            'max_value' => 'nullable|numeric',
+           // Percent condition
            'use_percent' => 'nullable|boolean',
            'base_value' => 'nullable|numeric',
            'percent' => 'nullable|numeric|min:0|max:100',
+           // Average condition
            'use_avg' => 'nullable|boolean',
            'avg_base_value' => 'nullable|numeric',
-           'avg_percent' => 'nullable|numeric|min:0|max:100'
+           'avg_percent' => 'nullable|numeric|min:0',
+           'operator' => 'nullable|string|in:AND,OR'
        ]);
 
        try {
+           \Log::info("Dữ liệu gửi lên từ form:", $request->all());
+
            // Set checkbox values
            $data['status'] = $request->has('status');
            $data['show_on_chart'] = $request->has('show_on_chart');
-           $data['type'] = 'boolean'; // Mặc định type là boolean
-           $data['operator'] = 'OR'; // Mặc định operator là OR
+           $data['operator'] = $request->input('operator', 'OR');
 
-           // Process data to create conditions array
-           $data = $this->processThresholdData($data);
+           // Tạo conditions array từ form data
+           $conditions = [];
 
-           // Update threshold
-           $threshold->update($data);
+           // Boolean condition
+           if ($request->has('use_boolean')) {
+               $conditions[] = [
+                   'type' => 'boolean',
+                   'enabled' => true,
+                   'value' => (bool)$request->input('boolean_value', true),
+                   'message' => $request->input('warning_message')
+               ];
+           }
+
+           // Range condition
+           if ($request->has('use_range')) {
+               $condition = [
+                   'type' => 'range',
+                   'enabled' => true,
+                   'message' => 'Cảnh báo vượt ngưỡng min-max'
+               ];
+               
+               if ($request->filled('min_value')) {
+                   $condition['min'] = (float)$request->input('min_value');
+               }
+               
+               if ($request->filled('max_value')) {
+                   $condition['max'] = (float)$request->input('max_value');
+               }
+
+               if (isset($condition['min']) || isset($condition['max'])) {
+                   $conditions[] = $condition;
+               }
+           }
+
+           // Percent condition
+           if ($request->has('use_percent') && $request->filled('base_value') && $request->filled('percent')) {
+               $conditions[] = [
+                   'type' => 'percent',
+                   'enabled' => true,
+                   'base_value' => (float)$request->input('base_value'),
+                   'percent' => (float)$request->input('percent'),
+                   'message' => 'Cảnh báo dao động % so với giá trị cơ sở'
+               ];
+           }
+
+           // Average condition
+           if ($request->has('use_avg') && $request->filled('avg_percent')) {
+               $conditions[] = [
+                   'type' => 'avg',
+                   'enabled' => true,
+                   'percent' => (float)$request->input('avg_percent'),
+                   'message' => 'Cảnh báo dao động so với trung bình 10 phút'
+               ];
+           }
+
+           // Cập nhật threshold
+           $threshold->update([
+               'machine_id' => $data['machine_id'],
+               'plc_data_key' => $data['plc_data_key'],
+               'name' => $data['name'],
+               'color' => $data['color'],
+               'show_on_chart' => $data['show_on_chart'],
+               'status' => $data['status'],
+               'operator' => $data['operator'],
+               'conditions' => $conditions
+           ]);
+
+           \Log::info("Dữ liệu sau khi lưu:", $threshold->toArray());
 
            return redirect()
                ->route('plc.machine.thresholds.show', $threshold->machine_id)
                ->with('success', 'Cập nhật cảnh báo thành công');
 
        } catch (\Exception $e) {
+           \Log::error("Lỗi cập nhật threshold: " . $e->getMessage());
+           \Log::error("Stack trace: " . $e->getTraceAsString());
            return back()
                ->withInput()
                ->with('error', 'Có lỗi xảy ra: ' . $e->getMessage());
@@ -230,6 +368,8 @@ class MachineThresholdController extends Controller
     */
    protected function processThresholdData($data)
    {
+       \Log::info("Bắt đầu xử lý dữ liệu threshold:", $data);
+
        // Convert boolean values
        $data['boolean_value'] = isset($data['boolean_value']) ? (bool)$data['boolean_value'] : null;
 
@@ -239,21 +379,36 @@ class MachineThresholdController extends Controller
        $data['use_percent'] = isset($data['use_percent']);
        $data['use_avg'] = isset($data['use_avg']);
 
+       \Log::info("Trạng thái use_avg: " . ($data['use_avg'] ? 'true' : 'false'));
+
        // Convert numeric values
        $numericFields = ['min_value', 'max_value', 'base_value', 'percent', 'avg_base_value', 'avg_percent'];
        foreach ($numericFields as $field) {
            if (isset($data[$field]) && $data[$field] !== '') {
                $data[$field] = (float)$data[$field];
+               \Log::info("Chuyển đổi {$field}: " . $data[$field]);
            } else {
                $data[$field] = null;
+               \Log::info("{$field} là null");
            }
        }
 
        // Build conditions array
        $conditions = [];
 
+       // Xác định type dựa vào loại cảnh báo được chọn
+       if ($data['use_boolean']) {
+           $data['type'] = 'boolean';
+       } elseif ($data['use_range']) {
+           $data['type'] = 'range';
+       } elseif ($data['use_percent']) {
+           $data['type'] = 'percent';
+       } elseif ($data['use_avg']) {
+           $data['type'] = 'avg';
+       }
+
        // Boolean condition
-       if (isset($data['use_boolean']) && $data['use_boolean'] && isset($data['boolean_value'])) {
+       if ($data['use_boolean'] && isset($data['boolean_value'])) {
            $conditions[] = [
                'type' => 'boolean',
                'value' => $data['boolean_value'],
@@ -262,7 +417,7 @@ class MachineThresholdController extends Controller
        }
 
        // Range condition
-       if (isset($data['use_range']) && $data['use_range'] && (isset($data['min_value']) || isset($data['max_value']))) {
+       if ($data['use_range'] && (isset($data['min_value']) || isset($data['max_value']))) {
            $conditions[] = [
                'type' => 'range',
                'min' => isset($data['min_value']) ? $data['min_value'] : null,
@@ -271,7 +426,7 @@ class MachineThresholdController extends Controller
        }
 
        // Percent condition
-       if (isset($data['use_percent']) && $data['use_percent'] && isset($data['base_value']) && isset($data['percent'])) {
+       if ($data['use_percent'] && isset($data['base_value']) && isset($data['percent'])) {
            $conditions[] = [
                'type' => 'percent',
                'base_value' => $data['base_value'],
@@ -280,7 +435,8 @@ class MachineThresholdController extends Controller
        }
 
        // Average condition
-       if (isset($data['use_avg']) && $data['use_avg'] && isset($data['avg_base_value']) && isset($data['avg_percent'])) {
+       if ($data['use_avg'] && isset($data['avg_base_value']) && isset($data['avg_percent'])) {
+           \Log::info("Thêm điều kiện trung bình với avg_percent = " . $data['avg_percent']);
            $conditions[] = [
                'type' => 'avg',
                'base_value' => $data['avg_base_value'],
@@ -290,6 +446,8 @@ class MachineThresholdController extends Controller
 
        // Set conditions and operator
        $data['conditions'] = $conditions;
+       \Log::info("Conditions cuối cùng:", $conditions);
+       \Log::info("Type cảnh báo: " . $data['type']);
 
        // Remove fields not in model if they exist
        $fieldsToUnset = [

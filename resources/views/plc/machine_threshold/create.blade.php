@@ -172,17 +172,19 @@
                                 </div>
                             </div>
                             <div class="card-body">
-                                <div class="form-group mb-3">
-                                    <label class="form-label">Giá trị cơ sở</label>
-                                    <input type="number" step="0.01" name="avg_base_value" class="form-control"
-                                           value="{{ old('avg_base_value') }}"
-                                           placeholder="VD: 100">
-                                </div>
                                 <div class="form-group">
                                     <label class="form-label">% dao động cho phép</label>
-                                    <input type="number" step="0.1" name="avg_percent" class="form-control"
-                                           value="{{ old('avg_percent') }}"
-                                           placeholder="VD: 20">
+                                    <div class="input-group">
+                                        <input type="number" step="0.001" name="avg_percent" class="form-control"
+                                               value="{{ old('avg_percent') }}"
+                                               placeholder="VD: 0.001">
+                                        <div class="input-group-append">
+                                            <span class="input-group-text">%</span>
+                                        </div>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Giá trị trung bình 10 phút sẽ được tính tự động. Cảnh báo khi giá trị hiện tại dao động quá % này so với giá trị trung bình. Có thể cài đặt tới 0.001%.
+                                    </small>
                                 </div>
                             </div>
                         </div>

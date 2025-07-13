@@ -31,6 +31,7 @@ class MonthlyOEEService
             ->where('year', $year)
             ->where('month', $month)
             ->first();
+            // dd($monthlyOEE);
         $plannedDowntime = $monthlyOEE ? $monthlyOEE->planned_downtime : 0;
         
         // Thời gian chạy máy theo kế hoạch
@@ -75,7 +76,7 @@ class MonthlyOEEService
         $actualRuntime = $actualRuntime / 60; 
         
         // Tính thời gian ngừng máy không có kế hoạch (từ công thức)
-        $unplannedDowntime = $plannedRuntime - $actualRuntime;
+        $unplannedDowntime = $plannedRuntime;
         // Đảm bảo không âm
         $unplannedDowntime = max(0, $unplannedDowntime);
 
@@ -119,8 +120,8 @@ class MonthlyOEEService
             'parameters' => [
                 'total_hours' => $totalHours,
                 'planned_downtime' => $plannedDowntime,
-                'planned_runtime' => $plannedRuntime,
-                'unplanned_downtime' => $unplannedDowntime,
+                'planned_runtime' => $unplannedDowntime,
+                'unplanned_downtime' => $unplannedDowntime-$actualRuntime,
                 'actual_runtime' => $actualRuntime,
                 'max_speed' => $maxSpeed,
                 'actual_productivity' => $actualProductivity,

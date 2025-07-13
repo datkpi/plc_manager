@@ -47,30 +47,47 @@ class CrawlPlcDataCommand extends Command
                     $this->info("Tìm thấy " . $thresholds->count() . " ngưỡng cần kiểm tra");
 
                     foreach($thresholds as $threshold) {
-                        $plcDataKey = $threshold->plc_data_key;
-                        $value = $data->{$plcDataKey};
                         $this->info("Kiểm tra {$threshold->name}:");
-                        $this->info("- Key: {$plcDataKey}");
-                        $this->info("- Giá trị hiện tại: {$value}");
+                        $this->line("- Key: {$threshold->plc_data_key}");
                         
-                        if (empty($threshold->conditions)) {
-                            $this->info("✅ Không có điều kiện cảnh báo nào");
+                        // Lấy giá trị hiện tại từ dữ liệu PLC
+                        $value = $data->{$threshold->plc_data_key};
+                        if (is_null($value)) {
+                            $this->warn("- Giá trị hiện tại: null (bỏ qua kiểm tra)");
                             continue;
                         }
                         
-                        // Kiểm tra điều kiện vượt ngưỡng
-                        $alertResult = $threshold->checkThreshold($value);
-                        
-                        if ($alertResult) {
-                            $this->error("🔴 Phát hiện cảnh báo cho {$threshold->name}, giá trị hiện tại: {$value}");
-                            
-                            // Hiển thị các điều kiện
-                            foreach ($threshold->conditions as $condition) {
-                                $this->warn("  - Điều kiện: " . $this->getConditionDescription($condition, $value));
+                        $this->line("- Giá trị hiện tại: " . number_format($value, 6));
+
+                        // Log chi tiết các giá trị để debug
+                        if ($threshold->type == 'avg') {
+                            $avgValue = $threshold->getAverageValue(10);
+                            if ($avgValue === null) {
+                                $this->warn("- Không thể tính giá trị trung bình 10 phút");
+                                continue;
                             }
+                            
+                            $deviation = abs($value - $avgValue);
+                            $percentDeviation = ($avgValue != 0) ? ($deviation / $avgValue) * 100 : 0;
+                            
+                            $this->line("- Giá trị trung bình 10p: " . number_format($avgValue, 6));
+                            $this->line("- Chênh lệch tuyệt đối: " . number_format($deviation, 6));
+                            $this->line("- % chênh lệch: " . number_format($percentDeviation, 3) . "%");
+                            
+                            if (isset($threshold->conditions[0]['percent'])) {
+                                $this->line("- Ngưỡng cho phép: ±" . number_format($threshold->conditions[0]['percent'], 2) . "%");
+                            } else {
+                                $this->warn("- Chưa cấu hình ngưỡng % cho phép");
+                            }
+                        }
+
+                        $alertResult = $threshold->checkThreshold($value);
+                        if ($alertResult) {
+                            $this->error("🔴 Phát hiện cảnh báo");
                         } else {
                             $this->info("✅ Giá trị bình thường");
                         }
+                        $this->newLine();
                     }
                 } else {
                     $this->error("Không thể lấy dữ liệu từ máy {$machine->name}");

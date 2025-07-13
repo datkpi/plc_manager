@@ -63,7 +63,8 @@
                                 @endif
                             @elseif($threshold->type == 'avg')
                                 <div>Trung bình 10 phút</div>
-                                <div>Dao động: ±{{ $threshold->percent }}%</div>
+                                <div>Dao động cho phép: ±{{ $threshold->percent }}%</div>
+                                <small class="text-muted">So sánh với giá trị trung bình 10 phút gần nhất</small>
                             @else
                                 <div>Giá trị gốc: {{ number_format($threshold->base_value, 2) }}</div>
                                 <div>Dao động: ±{{ $threshold->percent }}%</div>

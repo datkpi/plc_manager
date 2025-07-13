@@ -22,7 +22,7 @@
         </div>
         <div class="form-group">
             <label>Thời gian ngừng máy có kế hoạch (giờ)</label>
-            <input type="number" step="0.01" name="unplanned_downtime" class="form-control" required value="{{ old('unplanned_downtime', $monthlyOEE->unplanned_downtime) }}">
+            <input type="number" step="0.01" name="planned_runtime" class="form-control" required value="{{ old('planned_runtime', $monthlyOEE->planned_runtime) }}">
         </div>
         <button type="submit" class="btn btn-primary">Cập nhật</button>
         <a href="{{ route('plc.reports.monthly-oee.index') }}" class="btn btn-secondary">Hủy</a>

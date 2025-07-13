@@ -157,7 +157,7 @@ class MonthlyOEEController extends Controller
         $validated = $request->validate([
             'machine_id' => 'required|exists:machine,id',
             'month_year' => 'required|date_format:Y-m',
-            'unplanned_downtime' => 'required|numeric|min:0',
+            'planned_runtime' => 'required|numeric|min:0',
         ]);
 
         // Tách năm và tháng từ month_year
@@ -209,7 +209,7 @@ class MonthlyOEEController extends Controller
         $validated = $request->validate([
             'machine_id' => 'required|exists:machine,id',
             'month_year' => 'required|date_format:Y-m',
-            'unplanned_downtime' => 'required|numeric|min:0',
+            'planned_runtime' => 'required|numeric|min:0',
         ]);
 
         [$year, $month] = explode('-', $request->month_year);
